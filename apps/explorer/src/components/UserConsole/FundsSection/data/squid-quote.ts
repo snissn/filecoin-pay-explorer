@@ -6,17 +6,7 @@ import {
   type SquidFundingPlan,
 } from "squid-evm-funding";
 import { type Address, formatUnits } from "viem";
-
-export const SQUID_SOURCE_CHAINS = [
-  { id: 314, name: "Filecoin" },
-  { id: 42161, name: "Arbitrum" },
-  { id: 1, name: "Ethereum" },
-  { id: 8453, name: "Base" },
-  { id: 10, name: "Optimism" },
-  { id: 137, name: "Polygon" },
-  { id: 43114, name: "Avalanche" },
-  { id: 56, name: "BNB Chain" },
-] as const;
+import { SQUID_SOURCE_CHAINS } from "@/constants/chains";
 
 export async function planSquidTopUp({
   destinationAmount,

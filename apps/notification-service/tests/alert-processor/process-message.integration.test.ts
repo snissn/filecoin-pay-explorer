@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountSummary, ReadClient } from "../../alert-processor/account";
+import { getAlertState } from "../../alert-processor/dedup";
 import worker from "../../alert-processor/index";
 import { type ProcessDeps, processMessage } from "../../alert-processor/process-message";
 import { createDb, type DB } from "../../shared/db/client";
@@ -20,7 +21,7 @@ function summaryWithRunwayDays(days: number): AccountSummary {
 
 const HEALTHY: AccountSummary = { epoch: 1000n, runwayInEpochs: 0n, lockupRatePerEpoch: 0n, debt: 0n };
 const WARNING = summaryWithRunwayDays(20); // < 30d, >= 7d
-const CRITICAL = summaryWithRunwayDays(5); // < 7d, >= 1d
+const CRITICAL = summaryWithRunwayDays(5); // < 7d, >= 3d
 
 function deps(summary: AccountSummary): ProcessDeps & { sendEmail: ReturnType<typeof vi.fn> } {
   return {
@@ -47,18 +48,12 @@ async function logCount(): Promise<number> {
   return row?.n ?? 0;
 }
 
-async function claimedTier(): Promise<string | null> {
-  const row = await env.DB.prepare("SELECT alert_level FROM alert_claims WHERE wallet_address = ?")
-    .bind(WALLET)
-    .first<{ alert_level: string }>();
-  return row?.alert_level ?? null;
-}
-
 beforeEach(async () => {
   await env.DB.prepare("DELETE FROM wallet_subscriptions").run();
   await env.DB.prepare("DELETE FROM verified_emails").run();
   await env.DB.prepare("DELETE FROM notification_log").run();
-  await env.DB.prepare("DELETE FROM alert_claims").run();
+  const { keys } = await env.KV.list({ prefix: "alert:" });
+  await Promise.all(keys.map((k) => env.KV.delete(k.name)));
 });
 
 describe("processMessage", () => {
@@ -72,13 +67,10 @@ describe("processMessage", () => {
     expect(d.sendEmail).toHaveBeenCalledOnce();
     expect(d.sendEmail).toHaveBeenCalledWith(
       env,
-      expect.objectContaining({
-        to: EMAIL,
-        html: expect.stringContaining("https://pay.filecoin.cloud/console?topUp=1"),
-      }),
+      expect.objectContaining({ html: expect.stringContaining("/console?topUp=1"), to: EMAIL }),
     );
     expect(await logCount()).toBe(1);
-    expect(await claimedTier()).toBe("warning");
+    expect(await getAlertState(env.KV, WALLET)).toMatchObject({ tier: "warning" });
   });
 
   it("acks a healthy wallet without sending, and clears prior state", async () => {
@@ -90,7 +82,7 @@ describe("processMessage", () => {
 
     expect(action).toBe("ack");
     expect(d.sendEmail).not.toHaveBeenCalled();
-    expect(await claimedTier()).toBeNull();
+    expect(await getAlertState(env.KV, WALLET)).toBeNull();
   });
 
   it("suppresses a repeat of the same tier within the window", async () => {
@@ -114,7 +106,7 @@ describe("processMessage", () => {
 
     expect(action).toBe("ack");
     expect(d.sendEmail).toHaveBeenCalledOnce();
-    expect(await claimedTier()).toBe("critical");
+    expect(await getAlertState(env.KV, WALLET)).toMatchObject({ tier: "critical" });
   });
 
   it("re-alerts after a recovery clears the incident", async () => {
@@ -136,21 +128,6 @@ describe("processMessage", () => {
     expect(action).toBe("ack");
     expect(d.sendEmail).not.toHaveBeenCalled();
     expect(await logCount()).toBe(0);
-  });
-
-  it("does not send concurrently for overlapping duplicate deliveries", async () => {
-    await subscribe(WALLET, EMAIL);
-    const d = deps(WARNING);
-
-    const actions = await Promise.all([
-      processMessage(env, CLIENT, db, { walletAddress: WALLET }, d),
-      processMessage(env, CLIENT, db, { walletAddress: WALLET }, d),
-    ]);
-
-    expect(actions).toContain("ack");
-    expect(actions.every((action) => action === "ack" || action === "retry-after-claim-lease")).toBe(true);
-    expect(d.sendEmail).toHaveBeenCalledOnce();
-    expect(await logCount()).toBe(1);
   });
 
   it("retries when the on-chain read fails", async () => {
@@ -181,7 +158,7 @@ describe("processMessage", () => {
 
     expect(action).toBe("retry");
     expect(await logCount()).toBe(0);
-    expect(await claimedTier()).toBeNull();
+    expect(await getAlertState(env.KV, WALLET)).toBeNull();
   });
 
   it("retries instead of throwing when an unexpected error occurs (e.g. D1 down)", async () => {

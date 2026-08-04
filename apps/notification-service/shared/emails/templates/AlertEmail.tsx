@@ -137,7 +137,7 @@ export const previewProps: AlertEmailProps = {
   fundedUntil: "January 15, 2026",
   daysRemaining: 6,
   topUpAmount: "10 USDFC",
-  topUpUrl: "https://example.com/console",
+  topUpUrl: "https://example.com/console?topUp=1",
   logoUrl: DEFAULT_LOGO_URL,
   logoIconUrl: DEFAULT_LOGO_ICON_URL,
 };

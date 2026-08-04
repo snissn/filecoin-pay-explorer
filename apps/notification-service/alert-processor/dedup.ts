@@ -1,16 +1,22 @@
-import { and, eq, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
+import { z } from "zod";
 import type { DB } from "../shared/db/client";
-import { type AlertLevel, alertClaims, notificationLog } from "../shared/db/schema";
+import { type AlertLevel, notificationLog } from "../shared/db/schema";
 
+const ALERT_PREFIX = "alert:";
 const SECONDS_PER_DAY = 86_400;
-// Longer than Cloudflare Queues' 15-minute consumer wall-time limit, so an
-// expired claim cannot overlap the invocation that originally made it.
-export const CLAIM_LEASE_SECONDS = 16 * 60;
+
+// Higher number = more severe. Drives escalation vs de-escalation decisions.
+const SEVERITY: Record<AlertLevel, number> = {
+  warning: 0,
+  critical: 1,
+  emergency: 2,
+};
 
 /**
  * Days a fired alert suppresses the same tier for a wallet before we re-alert on
- * a still-unresolved incident. A more severe tier has a shorter window so a
- * worsening account is nudged sooner.
+ * a still-unresolved incident. Doubles as the KV key's TTL, so an abandoned
+ * incident self-expires. A more severe tier has a shorter window so a worsening
+ * account is nudged sooner.
  */
 export const RE_ALERT_WINDOWS: Record<AlertLevel, number> = {
   warning: 16,
@@ -18,62 +24,59 @@ export const RE_ALERT_WINDOWS: Record<AlertLevel, number> = {
   emergency: 2,
 };
 
-export type ClaimResult = "claimed" | "pending" | "suppressed";
+/** The most recent alert sent to a wallet — one record is its whole alert state. */
+export type AlertState = {
+  tier: AlertLevel;
+  /** Unix seconds the alert was sent. */
+  sentAt: number;
+};
+
+const storedSchema = z.object({
+  tier: z.enum(["warning", "critical", "emergency"]),
+  sentAt: z.number(),
+});
+
+/** KV key. `wallet` must already be lowercased by the caller. */
+export function alertKey(wallet: string): string {
+  return `${ALERT_PREFIX}${wallet}`;
+}
 
 /**
- * Atomically claims a wallet/tier before email delivery. Concurrent queue
- * deliveries race on one D1 primary key, so only one caller receives a row.
+ * Pure decision: given the last alert we sent (or null) and the tier observed
+ * now, should we send one? Returns `true` to send, `false` to suppress.
+ * - No prior alert -> send (new incident).
+ * - More severe than last -> send (escalation).
+ * - Less severe than last -> suppress (we already warned more severely; a lower
+ *   alert right after would be noise).
+ * - Same tier -> send only once its window has elapsed, so a sustained incident
+ *   re-alerts on a cadence instead of on every 12h tick.
  */
-export async function claimAlert(db: DB, wallet: string, tier: AlertLevel, nowSec: number): Promise<ClaimResult> {
-  const escalation =
-    tier === "emergency"
-      ? ne(alertClaims.alertLevel, "emergency")
-      : tier === "critical"
-        ? eq(alertClaims.alertLevel, "warning")
-        : undefined;
-  const sentEscalation = escalation == null ? undefined : and(isNotNull(alertClaims.sentAt), escalation);
-  const rows = await db
-    .insert(alertClaims)
-    .values({ walletAddress: wallet, alertLevel: tier, claimedAt: nowSec, sentAt: null })
-    .onConflictDoUpdate({
-      target: alertClaims.walletAddress,
-      set: { alertLevel: tier, claimedAt: nowSec, sentAt: null },
-      setWhere: or(
-        sentEscalation,
-        and(isNull(alertClaims.sentAt), lte(alertClaims.claimedAt, nowSec - CLAIM_LEASE_SECONDS)),
-        and(
-          isNotNull(alertClaims.sentAt),
-          eq(alertClaims.alertLevel, tier),
-          lte(alertClaims.sentAt, nowSec - RE_ALERT_WINDOWS[tier] * SECONDS_PER_DAY),
-        ),
-      ),
-    })
-    .returning({ walletAddress: alertClaims.walletAddress });
-  if (rows.length === 1) return "claimed";
-  const [current] = await db
-    .select({ sentAt: alertClaims.sentAt })
-    .from(alertClaims)
-    .where(eq(alertClaims.walletAddress, wallet))
-    .limit(1);
-  return current?.sentAt == null ? "pending" : "suppressed";
+export function shouldSend(previous: AlertState | null, tier: AlertLevel, nowSec: number): boolean {
+  if (!previous) return true;
+  if (SEVERITY[tier] > SEVERITY[previous.tier]) return true;
+  if (SEVERITY[tier] < SEVERITY[previous.tier]) return false;
+  const windowSec = RE_ALERT_WINDOWS[tier] * SECONDS_PER_DAY;
+  return nowSec - previous.sentAt >= windowSec;
 }
 
-/** Recovery starts a new incident the next time the wallet becomes at risk. */
-export async function clearAlertClaim(db: DB, wallet: string): Promise<void> {
-  await db.delete(alertClaims).where(eq(alertClaims.walletAddress, wallet));
+/** Reads a wallet's alert state; null when absent or malformed. */
+export async function getAlertState(kv: KVNamespace, wallet: string): Promise<AlertState | null> {
+  const raw = await kv.get(alertKey(wallet));
+  if (!raw) return null;
+  try {
+    const parsed = storedSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
-/** A failed email releases only the claim made by that delivery. */
-export async function releaseAlertClaim(db: DB, wallet: string, tier: AlertLevel, claimedAt: number): Promise<void> {
-  await db
-    .delete(alertClaims)
-    .where(
-      and(
-        eq(alertClaims.walletAddress, wallet),
-        eq(alertClaims.alertLevel, tier),
-        eq(alertClaims.claimedAt, claimedAt),
-      ),
-    );
+/**
+ * Clears a wallet's alert state on recovery, so a later relapse is treated as a
+ * fresh incident rather than being suppressed by the previous alert's window.
+ */
+export async function clearAlertState(kv: KVNamespace, wallet: string): Promise<void> {
+  await kv.delete(alertKey(wallet));
 }
 
 export type SentRecord = {
@@ -89,19 +92,11 @@ export type SentRecord = {
 };
 
 /**
- * Promotes the exact claim to sent, then appends the durable audit row.
+ * Persists a fired alert: appends the durable audit row to notification_log and
+ * updates the KV alert state (TTL = the tier's window). D1 is written first so a
+ * KV failure can't drop the audit trail.
  */
-export async function recordSent(db: DB, entry: SentRecord): Promise<void> {
-  await db
-    .update(alertClaims)
-    .set({ sentAt: entry.sentAtSec })
-    .where(
-      and(
-        eq(alertClaims.walletAddress, entry.wallet),
-        eq(alertClaims.alertLevel, entry.tier),
-        eq(alertClaims.claimedAt, entry.sentAtSec),
-      ),
-    );
+export async function recordSent(kv: KVNamespace, db: DB, entry: SentRecord): Promise<void> {
   await db.insert(notificationLog).values({
     id: crypto.randomUUID(),
     walletAddress: entry.wallet,
@@ -109,5 +104,10 @@ export async function recordSent(db: DB, entry: SentRecord): Promise<void> {
     fundedUntil: entry.fundedUntilSec,
     sentAt: entry.sentAtSec,
     emailSentTo: entry.emailSentTo,
+  });
+
+  const state: AlertState = { tier: entry.tier, sentAt: entry.sentAtSec };
+  await kv.put(alertKey(entry.wallet), JSON.stringify(state), {
+    expirationTtl: RE_ALERT_WINDOWS[entry.tier] * SECONDS_PER_DAY,
   });
 }

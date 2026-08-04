@@ -38,10 +38,7 @@ export const FundsSection: React.FC<FundsSectionProps> = ({ account, topUpOnly =
   const searchParams = useSearchParams();
   const [guidedTopUpOpen, setGuidedTopUpOpen] = useState(searchParams.get("topUp") === "1");
 
-  const { data, isLoading, isError } = useAccountTokens(account.id, 1, {
-    networkOverride: walletNetwork,
-    refetchInterval: 30_000,
-  });
+  const { data, isLoading, isError } = useAccountTokens(account.id, 1, { networkOverride: walletNetwork });
   const { data: fundingSummary, isError: isFundingSummaryError } = useAccountFundingSummary(
     address,
     walletNetwork,

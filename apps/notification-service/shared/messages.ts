@@ -11,8 +11,8 @@ import { z } from "zod";
 export const alertMessageSchema = z.object({
   /**
    * Subscriber wallet address, lowercased (enforced by the D1 check constraint).
-   * This is the message's whole payload: the processor atomically claims each
-   * wallet's current alert in D1, so
+   * This is the message's whole payload: the processor dedupes on its own
+   * `alert:{wallet}` key (KV TTL = re-alert window, backed by D1), so
    * re-delivery and cron re-fan-out are absorbed without the producer stamping
    * a run identifier.
    */

@@ -23,7 +23,6 @@ describe("executeSquidTopUp", () => {
       destinationClient: {} as never,
       integratorId: "test-integrator",
       maxNativeFee: 3n,
-      onExecutionStart: vi.fn(),
       plan,
       sourcePublicClient: {} as never,
       sourceWalletClient: {} as never,

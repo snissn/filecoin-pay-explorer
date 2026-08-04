@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { planSquidTopUp, SQUID_SOURCE_CHAINS } from "./squid-quote";
+import { SQUID_SOURCE_CHAINS } from "@/constants/chains";
+import { planSquidTopUp } from "./squid-quote";
 
 const planSquidFunding = vi.hoisted(() => vi.fn());
 const assertTrustedSquidQuote = vi.hoisted(() => vi.fn((quote) => quote));

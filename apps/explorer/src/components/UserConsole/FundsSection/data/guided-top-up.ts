@@ -1,4 +1,4 @@
-import { type Hash, parseUnits } from "viem";
+import { parseUnits } from "viem";
 import { calculateFundingRunway, type FundingRunwayInput, USDFC_DECIMALS } from "./funding-runway";
 
 export function parseTopUpAmount(amount: string): bigint | null {
@@ -34,25 +34,4 @@ export function withoutTopUpSearchParam(searchParams: URLSearchParams): string {
   nextSearchParams.delete("topUp");
   const query = nextSearchParams.toString();
   return query ? `?${query}` : "";
-}
-
-type FundSync = (options: {
-  amount: bigint;
-  onHash: (hash: Hash) => void;
-}) => Promise<{ receipt: { status: "reverted" | "success" } }>;
-
-export async function submitGuidedTopUp({
-  amount,
-  fundSync,
-  onConfirmed,
-  onSubmitted,
-}: {
-  amount: bigint;
-  fundSync: FundSync;
-  onConfirmed: () => Promise<void>;
-  onSubmitted: () => void;
-}) {
-  const { receipt } = await fundSync({ amount, onHash: onSubmitted });
-  if (receipt.status !== "success") throw new Error("Top-up transaction reverted");
-  await onConfirmed();
 }

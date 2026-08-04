@@ -1,11 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { EPOCHS_PER_DAY } from "./funding-runway";
-import {
-  calculateProjectedFundingRunway,
-  parseTopUpAmount,
-  submitGuidedTopUp,
-  withoutTopUpSearchParam,
-} from "./guided-top-up";
+import { calculateProjectedFundingRunway, parseTopUpAmount, withoutTopUpSearchParam } from "./guided-top-up";
 
 const rate = 10_000_000_000_000n;
 const now = 1_767_225_600n;
@@ -37,49 +32,5 @@ describe("guided top-up", () => {
     expect(withoutTopUpSearchParam(new URLSearchParams("topUp=1&account=0xabc&network=calibration"))).toBe(
       "?account=0xabc&network=calibration",
     );
-  });
-
-  it("submits only the confirmed editable amount and refreshes after its receipt", async () => {
-    const onHash = vi.fn();
-    const fundSync = vi.fn(async ({ onHash: submitted }: { onHash: (hash: `0x${string}`) => void }) => {
-      submitted("0x1234");
-      return { receipt: { status: "success" as const } };
-    });
-    const onConfirmed = vi.fn(async () => undefined);
-
-    await submitGuidedTopUp({ amount: 1_250_000_000_000_000_000n, fundSync, onSubmitted: onHash, onConfirmed });
-
-    expect(fundSync).toHaveBeenCalledWith({ amount: 1_250_000_000_000_000_000n, onHash });
-    expect(onConfirmed).toHaveBeenCalledOnce();
-  });
-
-  it("does not refresh when the wallet rejects the confirmed top-up", async () => {
-    const onConfirmed = vi.fn(async () => undefined);
-
-    await expect(
-      submitGuidedTopUp({
-        amount: 1n,
-        fundSync: async () => Promise.reject(new Error("User rejected")),
-        onSubmitted: () => undefined,
-        onConfirmed,
-      }),
-    ).rejects.toThrow("User rejected");
-
-    expect(onConfirmed).not.toHaveBeenCalled();
-  });
-
-  it("does not refresh when the confirmed transaction reverts", async () => {
-    const onConfirmed = vi.fn(async () => undefined);
-
-    await expect(
-      submitGuidedTopUp({
-        amount: 1n,
-        fundSync: async () => ({ receipt: { status: "reverted" } }),
-        onSubmitted: () => undefined,
-        onConfirmed,
-      }),
-    ).rejects.toThrow("Top-up transaction reverted");
-
-    expect(onConfirmed).not.toHaveBeenCalled();
   });
 });

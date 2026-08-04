@@ -6,8 +6,8 @@ import { useAccount } from "wagmi";
 import { CustomConnectButton } from "@/components/shared";
 import { BetaWarning, FundsSection, OperatorApprovalsSection, RailsSection } from "@/components/UserConsole";
 import ConsoleProviders from "@/components/UserConsole/ConsoleProviders";
-import { SQUID_SOURCE_CHAINS } from "@/components/UserConsole/FundsSection/data/squid-quote";
 import { AccountNotFound, ErrorState, NotConnected, UnsupportedChain } from "@/components/UserConsole/States";
+import { SQUID_SOURCE_CHAINS } from "@/constants/chains";
 import { useAccountDetails } from "@/hooks/useAccountDetails";
 import { getNetworkFromChainId, isSupportedChainId } from "@/utils/network";
 

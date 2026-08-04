@@ -31,17 +31,6 @@ export const walletSubscriptions = sqliteTable(
   ],
 );
 
-export const alertClaims = sqliteTable(
-  "alert_claims",
-  {
-    walletAddress: text("wallet_address").notNull().primaryKey(),
-    alertLevel: text("alert_level", { enum: ALERT_LEVELS }).notNull(),
-    claimedAt: integer("claimed_at").notNull(),
-    sentAt: integer("sent_at"),
-  },
-  (table) => [check("alert_claim_wallet_address_lower", sql`${table.walletAddress} = lower(${table.walletAddress})`)],
-);
-
 export const notificationLog = sqliteTable(
   "notification_log",
   {

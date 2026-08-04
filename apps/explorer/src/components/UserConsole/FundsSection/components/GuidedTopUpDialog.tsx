@@ -12,7 +12,7 @@ import {
 } from "@filecoin-pay/ui/components/dialog";
 import { Label } from "@filecoin-pay/ui/components/label";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { formatUnits } from "viem";
 import { useAccount, useSwitchChain } from "wagmi";
@@ -21,7 +21,7 @@ import useSynapse from "@/hooks/useSynapse";
 import type { Network } from "@/types";
 import { formatDate } from "@/utils/formatter";
 import { calculateFundingRunway, type FundingRunwayInput, USDFC_DECIMALS } from "../data/funding-runway";
-import { calculateProjectedFundingRunway, parseTopUpAmount, submitGuidedTopUp } from "../data/guided-top-up";
+import { calculateProjectedFundingRunway, parseTopUpAmount } from "../data/guided-top-up";
 import { SquidQuoteReview } from "./SquidQuoteReview";
 
 type GuidedTopUpDialogProps = {
@@ -57,11 +57,9 @@ export function GuidedTopUpDialog({
   const wasOpen = useRef(false);
   const parsedAmount = parseTopUpAmount(amount);
   const depositAmount = acquiredAmount ?? parsedAmount;
-  const current = useMemo(() => calculateFundingRunway({ ...summary, nowTimestamp }), [nowTimestamp, summary]);
-  const projected = useMemo(
-    () => (depositAmount === null ? null : calculateProjectedFundingRunway(summary, depositAmount, nowTimestamp)),
-    [depositAmount, nowTimestamp, summary],
-  );
+  const current = calculateFundingRunway({ ...summary, nowTimestamp });
+  const projected =
+    depositAmount === null ? null : calculateProjectedFundingRunway(summary, depositAmount, nowTimestamp);
 
   useEffect(() => {
     if (open && !wasOpen.current && acquiredAmount === null) {
@@ -75,18 +73,17 @@ export function GuidedTopUpDialog({
 
     setIsSubmitting(true);
     try {
-      await submitGuidedTopUp({
+      const { receipt } = await synapse.payments.fundSync({
         amount: depositAmount,
-        fundSync: (options) => synapse.payments.fundSync(options),
-        onSubmitted: () => toast.info("Top-up transaction submitted"),
-        onConfirmed: () =>
-          Promise.all([
-            queryClient.invalidateQueries({ queryKey: ["account", address, "funding-summary", network] }),
-            queryClient.invalidateQueries({ queryKey: ["account", accountId, "tokens"] }),
-            queryClient.invalidateQueries({ queryKey: ["balance"] }),
-            queryClient.invalidateQueries({ queryKey: ["readContract"] }),
-          ]).then(() => undefined),
+        onHash: () => toast.info("Top-up transaction submitted"),
       });
+      if (receipt.status !== "success") throw new Error("Top-up transaction reverted");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["account", address, "funding-summary", network] }),
+        queryClient.invalidateQueries({ queryKey: ["account", accountId, "tokens"] }),
+        queryClient.invalidateQueries({ queryKey: ["balance"] }),
+        queryClient.invalidateQueries({ queryKey: ["readContract"] }),
+      ]);
       toast.success("USDFC top-up confirmed");
       setAcquiredAmount(null);
       setAcquisitionState("idle");

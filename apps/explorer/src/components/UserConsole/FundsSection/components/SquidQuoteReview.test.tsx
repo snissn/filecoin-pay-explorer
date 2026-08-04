@@ -11,7 +11,6 @@ const planSquidTopUp = vi.hoisted(() => vi.fn());
 const executeSquidTopUp = vi.hoisted(() => vi.fn());
 const sourceTokens = vi.hoisted(() => [
   { chainId: 314, decimals: 18, symbol: "FIL", token: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
-  { chainId: 314, decimals: 6, symbol: "USDC", token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
 ]);
 const wallet = vi.hoisted(() => ({ address: "0x1111111111111111111111111111111111111111", chainId: 314 }));
 
@@ -31,7 +30,6 @@ vi.mock("wagmi", () => ({
 }));
 vi.mock("../data/squid-quote", () => ({
   planSquidTopUp,
-  SQUID_SOURCE_CHAINS: [{ id: 314, name: "Filecoin" }],
 }));
 vi.mock("../data/squid-execution", () => ({ executeSquidTopUp }));
 vi.mock("squid-evm-funding", () => ({ fetchSourceTokens: vi.fn() }));
@@ -222,41 +220,8 @@ describe("SquidQuoteReview", () => {
     expect(onAcquired).toHaveBeenCalledWith(1_000_000_000_000_000_000n);
   });
 
-  it("passes an ERC20 selection to the executor only after explicit confirmation", async () => {
-    executeSquidTopUp.mockResolvedValue({ nativeFee: 1n, routes: [], sourceAmount: 2n });
-    planSquidTopUp.mockResolvedValueOnce({
-      maxSourceAmount: 2_000_000n,
-      owner: wallet.address,
-      quotes: [
-        {
-          actions: [],
-          costs: [],
-          destinationAmount: 1_000_000_000_000_000_000n,
-          expiresAt: 2_000_000_000,
-          sourceAmount: 2_000_000n,
-        },
-      ],
-      slippage: 1,
-      source: sourceTokens[1],
-    });
-    await act(async () => root.render(<QuoteHarness />));
-    await selectQuoteInput(sourceTokens[1]?.token);
-    await act(async () => button("Review route").click());
-    const maximumFee = container.querySelectorAll("input")[1];
-    if (!(maximumFee instanceof HTMLInputElement)) throw new Error("Missing maximum fee input");
-    await setInputValue(maximumFee, "0.01");
-    await act(async () => button("Acquire USDFC").click());
-
-    expect(executeSquidTopUp).toHaveBeenCalledWith(
-      expect.objectContaining({ plan: expect.objectContaining({ source: sourceTokens[1] }) }),
-    );
-  });
-
   it("blocks another acquisition in the dialog after an ambiguous execution failure", async () => {
-    executeSquidTopUp.mockImplementation(({ onExecutionStart }) => {
-      onExecutionStart();
-      return Promise.reject(new Error("Connection interrupted"));
-    });
+    executeSquidTopUp.mockRejectedValue(new Error("Connection interrupted"));
     await act(async () => root.render(<QuoteHarness />));
     await selectQuoteInput();
     await act(async () => button("Review route").click());
@@ -294,12 +259,12 @@ describe("SquidQuoteReview", () => {
 
   it("keeps acquisition processing until the executor settles", async () => {
     let resolveExecution: (() => void) | undefined;
-    executeSquidTopUp.mockImplementation(({ onExecutionStart }) => {
-      onExecutionStart();
-      return new Promise((resolve) => {
-        resolveExecution = () => resolve({ nativeFee: 1n, routes: [], sourceAmount: 2n });
-      });
-    });
+    executeSquidTopUp.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveExecution = () => resolve({ nativeFee: 1n, routes: [], sourceAmount: 2n });
+        }),
+    );
     await act(async () => root.render(<QuoteHarness />));
     await selectQuoteInput();
     await act(async () => button("Review route").click());

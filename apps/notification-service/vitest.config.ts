@@ -8,14 +8,7 @@ const migrations = (
   await Promise.all(
     readdirSync(migrationsDir)
       .sort()
-      .map(async (directory) =>
-        (
-          await readD1Migrations(path.join(migrationsDir, directory))
-        ).map((migration) => ({
-          ...migration,
-          name: `${directory}/${migration.name}`,
-        })),
-      ),
+      .map((d) => readD1Migrations(path.join(migrationsDir, d))),
   )
 ).flat();
 
@@ -73,7 +66,7 @@ export default defineConfig({
           },
         },
       }),
-      // Workers environment — alert-processor: D1 + jsx-email (renderAlertEmail)
+      // Workers environment — alert-processor: D1 + KV + jsx-email (renderAlertEmail)
       defineProject({
         plugins: [
           cloudflareTest({
@@ -82,7 +75,8 @@ export default defineConfig({
               environment: "staging",
             },
             miniflare: {
-              // Processor reads/writes alert_claim and notification_log.
+              // Processor reads/writes notification_log, so migrations must be applied.
+              // KV is the processor's own `KV` binding — no separate test namespace.
               bindings: { TEST_MIGRATIONS: migrations },
             },
           }),

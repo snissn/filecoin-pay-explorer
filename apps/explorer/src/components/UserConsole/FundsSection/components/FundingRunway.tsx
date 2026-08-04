@@ -1,9 +1,7 @@
 "use client";
 
 import { Button } from "@filecoin-foundation/ui-filecoin/Button";
-import { Input } from "@filecoin-foundation/ui-filecoin/Input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@filecoin-pay/ui/components/card";
-import { useEffect, useMemo, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { formatDate } from "@/utils/formatter";
 import {
@@ -43,15 +41,8 @@ export function FundingRunway({
   summary,
   nowTimestamp = BigInt(Math.floor(Date.now() / 1_000)),
 }: FundingRunwayProps) {
-  const runway = useMemo(() => calculateFundingRunway({ ...summary, nowTimestamp }), [nowTimestamp, summary]);
+  const runway = calculateFundingRunway({ ...summary, nowTimestamp });
   const suggestedAmount = formatUnits(runway.suggestedTopUp, USDFC_DECIMALS);
-  const [amount, setAmount] = useState(suggestedAmount);
-  const previousSuggestedAmount = useRef(suggestedAmount);
-
-  useEffect(() => {
-    setAmount((currentAmount) => (currentAmount === previousSuggestedAmount.current ? suggestedAmount : currentAmount));
-    previousSuggestedAmount.current = suggestedAmount;
-  }, [suggestedAmount]);
 
   const fundedThrough =
     runway.fundedThroughTimestamp === null ? "No active spend" : formatDate(runway.fundedThroughTimestamp);
@@ -81,13 +72,11 @@ export function FundingRunway({
           <p className='text-sm text-muted-foreground'>Remaining runway</p>
           <p className='font-medium'>{remainingRunway}</p>
         </div>
-        <div className='grid gap-1'>
-          <label className='text-sm text-muted-foreground' htmlFor='suggested-top-up'>
-            Suggested top-up (USDFC)
-          </label>
-          <Input id='suggested-top-up' type='number' min='0' step='any' value={amount} onChange={setAmount} />
+        <div>
+          <p className='text-sm text-muted-foreground'>Suggested top-up to one year</p>
+          <p className='font-medium'>{suggestedAmount} USDFC</p>
           {onTopUp && (
-            <Button className='mt-2' onClick={() => onTopUp(amount)} variant='primary'>
+            <Button className='mt-2' onClick={() => onTopUp(suggestedAmount)} variant='primary'>
               Top up
             </Button>
           )}

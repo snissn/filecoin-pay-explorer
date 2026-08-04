@@ -26,7 +26,6 @@ interface AccountApprovalsResponse {
 
 interface AccountDetailsOptions {
   networkOverride?: Network;
-  refetchInterval?: number | false;
 }
 
 const PAGE_SIZE = 10;
@@ -56,7 +55,6 @@ export const useAccountTokens = (accountId: string, page: number = 1, options?: 
     }),
     enabled: !!accountId,
     networkOverride: options?.networkOverride,
-    refetchInterval: options?.refetchInterval,
   });
 
 export const useAccountRails = (accountId: string, page: number = 1, options?: AccountDetailsOptions) =>

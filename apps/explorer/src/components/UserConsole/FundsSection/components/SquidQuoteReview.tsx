@@ -11,10 +11,11 @@ import {
 import { formatUnits, parseUnits } from "viem";
 import { estimateTotalFee } from "viem/op-stack";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { SQUID_SOURCE_CHAINS } from "@/constants/chains";
 import useSynapse from "@/hooks/useSynapse";
 import { USDFC_DECIMALS } from "../data/funding-runway";
 import { executeSquidTopUp } from "../data/squid-execution";
-import { planSquidTopUp, SQUID_SOURCE_CHAINS } from "../data/squid-quote";
+import { planSquidTopUp } from "../data/squid-quote";
 
 type SquidQuoteReviewProps = {
   acquisitionState: "acquired" | "blocked" | "idle" | "processing";
@@ -43,14 +44,9 @@ export function SquidQuoteReview({
   const [plan, setPlan] = useState<SquidFundingPlan | null>(null);
   const [maximumNativeFee, setMaximumNativeFee] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const latestQuoteState = useRef({
-    address,
-    chainId,
-    destinationAmount,
-    sourceAmount,
-    sourceChainId,
-    sourceTokenAddress,
-  });
+  const quoteKey = `${address}:${chainId}:${destinationAmount}:${sourceAmount}:${sourceChainId}:${sourceTokenAddress}`;
+  const latestQuoteKey = useRef(quoteKey);
+  latestQuoteKey.current = quoteKey;
   const sourceChain = Number(sourceChainId);
   const sourcePublicClient = usePublicClient({ chainId: sourceChain || undefined });
   const { data: sourceWalletClient } = useWalletClient({ chainId: sourceChain || undefined });
@@ -66,11 +62,7 @@ export function SquidQuoteReview({
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dependencies intentionally invalidate the displayed quote.
   useEffect(() => {
     setPlan(null);
-  }, [address, chainId, destinationAmount, sourceAmount, sourceChainId, sourceTokenAddress]);
-
-  useEffect(() => {
-    latestQuoteState.current = { address, chainId, destinationAmount, sourceAmount, sourceChainId, sourceTokenAddress };
-  }, [address, chainId, destinationAmount, sourceAmount, sourceChainId, sourceTokenAddress]);
+  }, [quoteKey]);
 
   const review = async () => {
     setError(null);
@@ -84,26 +76,17 @@ export function SquidQuoteReview({
       return setError("Enter a valid source amount.");
     }
     if (parsedSourceAmount <= 0n) return setError("Enter a source amount greater than zero.");
-    const quotedOwner = address;
-    const quotedChainId = chainId;
-    const quotedState = { destinationAmount, sourceAmount, sourceChainId, sourceTokenAddress };
+    const reviewedQuoteKey = quoteKey;
     try {
       const result = await planSquidTopUp({
         destinationAmount,
         destinationToken: constants.contracts.usdfc,
         integratorId,
-        owner: quotedOwner,
+        owner: address,
         source,
         sourceAmount: parsedSourceAmount,
       });
-      if (
-        latestQuoteState.current.address !== quotedOwner ||
-        latestQuoteState.current.chainId !== quotedChainId ||
-        latestQuoteState.current.destinationAmount !== quotedState.destinationAmount ||
-        latestQuoteState.current.sourceAmount !== quotedState.sourceAmount ||
-        latestQuoteState.current.sourceChainId !== quotedState.sourceChainId ||
-        latestQuoteState.current.sourceTokenAddress !== quotedState.sourceTokenAddress
-      ) {
+      if (latestQuoteKey.current !== reviewedQuoteKey) {
         throw new Error("Funding details or wallet changed while requesting the quote.");
       }
       setPlan(result);
@@ -144,16 +127,12 @@ export function SquidQuoteReview({
               estimateTotalFee(sourcePublicClient, request),
           }
         : sourcePublicClient;
-    let executionStarted = false;
     onAcquisitionStateChange("processing");
     try {
       await executeSquidTopUp({
         destinationClient: destinationClient as unknown as SquidPublicClient,
         integratorId,
         maxNativeFee,
-        onExecutionStart: () => {
-          executionStarted = true;
-        },
         plan,
         sourcePublicClient: publicClient as unknown as SquidPublicClient,
         sourceWalletClient: sourceWalletClient as SquidWalletClient,
@@ -161,7 +140,7 @@ export function SquidQuoteReview({
       onAcquisitionStateChange("acquired");
       onAcquired(destinationAmount);
     } catch (executionError) {
-      onAcquisitionStateChange(executionStarted ? "blocked" : "idle");
+      onAcquisitionStateChange("blocked");
       setError(executionError instanceof Error ? executionError.message : "Squid could not complete the acquisition.");
     }
   };

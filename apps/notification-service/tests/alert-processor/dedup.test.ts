@@ -1,84 +1,127 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  CLAIM_LEASE_SECONDS,
-  claimAlert,
-  clearAlertClaim,
+  type AlertState,
+  alertKey,
+  clearAlertState,
+  getAlertState,
   RE_ALERT_WINDOWS,
   recordSent,
-  releaseAlertClaim,
+  shouldSend,
 } from "../../alert-processor/dedup";
 import { createDb } from "../../shared/db/client";
 
 const WALLET = "0xabcdef1234567890abcdef1234567890abcdef12";
+// Fixed instant so window math is deterministic; stored as unix seconds like the code.
 const NOW = Math.floor(new Date("2026-01-15T00:00:00Z").getTime() / 1000);
 const SECONDS_PER_DAY = 86_400;
-const db = createDb(env.DB);
+
+function db() {
+  return createDb(env.DB);
+}
 
 beforeEach(async () => {
-  await env.DB.prepare("DELETE FROM alert_claims").run();
   await env.DB.prepare("DELETE FROM notification_log").run();
+  const { keys } = await env.KV.list({ prefix: "alert:" });
+  await Promise.all(keys.map((k) => env.KV.delete(k.name)));
 });
 
-describe("claimAlert", () => {
-  it("atomically gives one concurrent delivery the fresh claim", async () => {
-    const claims = await Promise.all([claimAlert(db, WALLET, "warning", NOW), claimAlert(db, WALLET, "warning", NOW)]);
-    expect(claims.sort()).toEqual(["claimed", "pending"]);
+describe("alertKey", () => {
+  it("namespaces by wallet", () => {
+    expect(alertKey(WALLET)).toBe(`alert:${WALLET}`);
+  });
+});
+
+describe("RE_ALERT_WINDOWS", () => {
+  it("shrinks the window as severity rises", () => {
+    expect(RE_ALERT_WINDOWS.warning).toBeGreaterThan(RE_ALERT_WINDOWS.critical);
+    expect(RE_ALERT_WINDOWS.critical).toBeGreaterThan(RE_ALERT_WINDOWS.emergency);
+  });
+});
+
+describe("shouldSend", () => {
+  it("sends when there is no prior alert", () => {
+    expect(shouldSend(null, "warning", NOW)).toBe(true);
   });
 
-  it("allows escalation but suppresses de-escalation and an early repeat", async () => {
-    expect(await claimAlert(db, WALLET, "warning", NOW)).toBe("claimed");
-    await recordSent(db, {
+  it("sends on escalation to a more severe tier", () => {
+    const previous: AlertState = { tier: "warning", sentAt: NOW };
+    expect(shouldSend(previous, "critical", NOW)).toBe(true);
+  });
+
+  it("suppresses de-escalation to a less severe tier", () => {
+    const previous: AlertState = { tier: "emergency", sentAt: NOW };
+    expect(shouldSend(previous, "warning", NOW)).toBe(false);
+  });
+
+  it("suppresses the same tier before its window elapses", () => {
+    const previous: AlertState = { tier: "warning", sentAt: NOW - SECONDS_PER_DAY };
+    expect(shouldSend(previous, "warning", NOW)).toBe(false);
+  });
+
+  it("sends the same tier once its window has elapsed", () => {
+    const previous: AlertState = { tier: "warning", sentAt: NOW - RE_ALERT_WINDOWS.warning * SECONDS_PER_DAY };
+    expect(shouldSend(previous, "warning", NOW)).toBe(true);
+  });
+
+  it("uses the observed tier's window for the cadence check", () => {
+    // Two days since an emergency alert: past emergency's 2d window (send), but
+    // inside critical's 5d window (suppress) — the current tier decides.
+    const sentAt = NOW - 2 * SECONDS_PER_DAY;
+    expect(shouldSend({ tier: "emergency", sentAt }, "emergency", NOW)).toBe(true);
+    expect(shouldSend({ tier: "critical", sentAt }, "critical", NOW)).toBe(false);
+  });
+});
+
+describe("getAlertState", () => {
+  it("returns null when no state exists", async () => {
+    expect(await getAlertState(env.KV, WALLET)).toBeNull();
+  });
+
+  it("round-trips the stored state", async () => {
+    await recordSent(env.KV, db(), {
       tier: "warning",
       wallet: WALLET,
       fundedUntilSec: NOW + SECONDS_PER_DAY,
       sentAtSec: NOW,
       emailSentTo: "alice@example.com",
     });
-    expect(await claimAlert(db, WALLET, "warning", NOW + SECONDS_PER_DAY)).toBe("suppressed");
-    expect(await claimAlert(db, WALLET, "critical", NOW + SECONDS_PER_DAY)).toBe("claimed");
-    await recordSent(db, {
-      tier: "critical",
-      wallet: WALLET,
-      fundedUntilSec: NOW + SECONDS_PER_DAY,
-      sentAtSec: NOW + SECONDS_PER_DAY,
-      emailSentTo: "alice@example.com",
-    });
-    expect(await claimAlert(db, WALLET, "warning", NOW + 2 * SECONDS_PER_DAY)).toBe("suppressed");
+    expect(await getAlertState(env.KV, WALLET)).toEqual({ tier: "warning", sentAt: NOW });
   });
 
-  it("allows a same-tier alert after its window", async () => {
-    expect(await claimAlert(db, WALLET, "warning", NOW)).toBe("claimed");
-    await recordSent(db, {
+  it("returns null when the stored value is malformed", async () => {
+    await env.KV.put(alertKey(WALLET), "not-json");
+    expect(await getAlertState(env.KV, WALLET)).toBeNull();
+  });
+
+  it("returns null when required fields are missing", async () => {
+    await env.KV.put(alertKey(WALLET), JSON.stringify({ tier: "warning" }));
+    expect(await getAlertState(env.KV, WALLET)).toBeNull();
+  });
+});
+
+describe("clearAlertState", () => {
+  it("lets a relapse alert again after recovery", async () => {
+    await recordSent(env.KV, db(), {
       tier: "warning",
       wallet: WALLET,
       fundedUntilSec: NOW + SECONDS_PER_DAY,
       sentAtSec: NOW,
       emailSentTo: "alice@example.com",
     });
-    expect(await claimAlert(db, WALLET, "warning", NOW + RE_ALERT_WINDOWS.warning * SECONDS_PER_DAY)).toBe("claimed");
-  });
+    // Within the window, a same-tier relapse would normally be suppressed.
+    expect(shouldSend(await getAlertState(env.KV, WALLET), "warning", NOW + SECONDS_PER_DAY)).toBe(false);
 
-  it("reclaims an interrupted delivery after its lease", async () => {
-    expect(await claimAlert(db, WALLET, "warning", NOW)).toBe("claimed");
-    expect(await claimAlert(db, WALLET, "critical", NOW + 1)).toBe("pending");
-    expect(await claimAlert(db, WALLET, "warning", NOW + CLAIM_LEASE_SECONDS - 1)).toBe("pending");
-    expect(await claimAlert(db, WALLET, "critical", NOW + CLAIM_LEASE_SECONDS)).toBe("claimed");
-  });
+    await clearAlertState(env.KV, WALLET);
 
-  it("can clear a recovered incident or release a failed delivery", async () => {
-    expect(await claimAlert(db, WALLET, "warning", NOW)).toBe("claimed");
-    await releaseAlertClaim(db, WALLET, "warning", NOW);
-    expect(await claimAlert(db, WALLET, "warning", NOW)).toBe("claimed");
-    await clearAlertClaim(db, WALLET);
-    expect(await claimAlert(db, WALLET, "warning", NOW)).toBe("claimed");
+    expect(await getAlertState(env.KV, WALLET)).toBeNull();
+    expect(shouldSend(await getAlertState(env.KV, WALLET), "warning", NOW + SECONDS_PER_DAY)).toBe(true);
   });
 });
 
 describe("recordSent", () => {
-  it("marks the claim sent and writes the D1 audit row", async () => {
-    expect(await claimAlert(db, WALLET, "critical", NOW)).toBe("claimed");
-    await recordSent(db, {
+  it("writes the D1 audit row and the KV alert state", async () => {
+    await recordSent(env.KV, db(), {
       tier: "critical",
       wallet: WALLET,
       fundedUntilSec: NOW + 3 * SECONDS_PER_DAY,
@@ -98,6 +141,6 @@ describe("recordSent", () => {
         email_sent_to: "alice@example.com",
       },
     ]);
-    expect(await claimAlert(db, WALLET, "critical", NOW + SECONDS_PER_DAY)).toBe("suppressed");
+    expect(await getAlertState(env.KV, WALLET)).toEqual({ tier: "critical", sentAt: NOW });
   });
 });

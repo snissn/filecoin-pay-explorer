@@ -60,6 +60,7 @@ describe("deriveAccountHealth", () => {
     [7, "warning"], // exactly at the critical cut-off stays warning
     [6, "critical"],
     [1, "critical"], // exactly at the emergency cut-off stays critical
+    [0, "emergency"],
   ])("maps %i days of runway to %s", (runwayDays, tier) => {
     const health = deriveAccountHealth(summary({ runwayInEpochs: days(runwayDays) }), DEFAULT_HEALTH_THRESHOLDS);
 
@@ -67,9 +68,9 @@ describe("deriveAccountHealth", () => {
   });
 
   it("treats positive runway below one day as emergency", () => {
-    const health = deriveAccountHealth(summary({ runwayInEpochs: EPOCHS_PER_DAY - 1n }), DEFAULT_HEALTH_THRESHOLDS);
-
-    expect(health.tier).toBe("emergency");
+    expect(deriveAccountHealth(summary({ runwayInEpochs: EPOCHS_PER_DAY - 1n }), DEFAULT_HEALTH_THRESHOLDS).tier).toBe(
+      "emergency",
+    );
   });
 
   it("floors runwayDays and returns the absolute fundedUntilEpoch", () => {

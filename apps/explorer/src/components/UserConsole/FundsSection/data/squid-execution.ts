@@ -15,7 +15,6 @@ export async function executeSquidTopUp({
   destinationClient,
   integratorId,
   maxNativeFee,
-  onExecutionStart,
   plan,
   sourcePublicClient,
   sourceWalletClient,
@@ -23,12 +22,10 @@ export async function executeSquidTopUp({
   destinationClient: SquidPublicClient;
   integratorId: string;
   maxNativeFee: bigint;
-  onExecutionStart: () => void;
   plan: SquidFundingPlan;
   sourcePublicClient: SquidPublicClient;
   sourceWalletClient: SquidWalletClient;
 }): Promise<SquidExecutionResult> {
-  onExecutionStart();
   return executeSquidFunding(
     {
       feeMode: OP_STACK_CHAIN_IDS.has(plan.source.chainId) ? "op-stack" : "standard",
