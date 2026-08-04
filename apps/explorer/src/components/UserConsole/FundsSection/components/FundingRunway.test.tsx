@@ -31,7 +31,7 @@ describe("FundingRunway", () => {
     expect(markup).toContain(status);
   });
 
-  it("renders the read-only runway and one-year top-up estimate", () => {
+  it("renders the runway, editable top-up amount, and top-up action", () => {
     const markup = renderToStaticMarkup(
       <FundingRunway
         summary={{
@@ -41,6 +41,7 @@ describe("FundingRunway", () => {
           runwayInEpochs: 100n * EPOCHS_PER_DAY,
         }}
         nowTimestamp={now}
+        onTopUp={() => undefined}
       />,
     );
 
@@ -49,6 +50,7 @@ describe("FundingRunway", () => {
     expect(markup).toContain("Remaining runway");
     expect(markup).toContain("Suggested top-up (USDFC)");
     expect(markup).toContain('value="7.632"');
+    expect(markup).toContain("Top up");
   });
 
   it("renders a critical state for on-chain debt", () => {
