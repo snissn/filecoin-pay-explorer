@@ -11,11 +11,11 @@ import {
   readAccountSummary,
 } from "./account";
 import { buildAlertContent } from "./alert-content";
-import { clearAlertState, getAlertState, recordSent, shouldSend } from "./dedup";
+import { claimAlert, clearAlertClaim, recordSent, releaseAlertClaim } from "./dedup";
 import { findSubscriberEmail } from "./queries";
 
 /** What the queue handler should do with the message. */
-export type MessageAction = "ack" | "retry";
+export type MessageAction = "ack" | "retry" | "retry-after-claim-lease";
 
 /** A rendered alert ready for the email binding. */
 export type OutboundEmail = {
@@ -27,7 +27,7 @@ export type OutboundEmail = {
 
 /**
  * The two external boundaries, injected so tests can mock RPC + email while D1
- * and KV run for real.
+ * runs for real.
  */
 export type ProcessDeps = {
   readSummary: (client: ReadClient, wallet: string) => Promise<AccountSummary>;
@@ -68,15 +68,10 @@ export async function processMessage(
 
     // Recovered (or never at risk): reset dedup so a later relapse alerts again.
     if (health.tier === "healthy") {
-      await clearAlertState(env.KV, wallet);
+      await clearAlertClaim(db, wallet);
       return "ack";
     }
     const tier = health.tier;
-
-    // Suppress if we already alerted this incident within the tier's window.
-    if (!shouldSend(await getAlertState(env.KV, wallet), tier, nowSec)) {
-      return "ack";
-    }
 
     // Unsubscribed between scheduling and now → nothing to send.
     const subscriber = await findSubscriberEmail(db, wallet);
@@ -94,17 +89,23 @@ export async function processMessage(
     };
     const { subject, html, text } = await renderAlertEmail(props);
 
+    const claim = await claimAlert(db, wallet, tier, nowSec);
+    if (claim === "pending") return "retry-after-claim-lease";
+    if (claim === "suppressed") return "ack";
+
     try {
       await deps.sendEmail(env, { to: subscriber.email, subject, html, text });
     } catch (error) {
       log("send_failed", { wallet, tier, error });
+      await releaseAlertClaim(db, wallet, tier, nowSec);
       return "retry";
     }
 
     // Email is out; record it. A failure here can't un-send, so ack rather than
-    // retry (which would re-send). Worst case the next 12h tick re-alerts.
+    // retry (which would re-send). The claim prevents concurrent delivery;
+    // email delivery itself remains at-least-once at the external boundary.
     try {
-      await recordSent(env.KV, db, {
+      await recordSent(db, {
         tier,
         wallet,
         fundedUntilSec: content.fundedUntilSec,
@@ -117,7 +118,7 @@ export async function processMessage(
 
     return "ack";
   } catch (error) {
-    // Anything unhandled (KV, D1, template render) is transient → retry, so a
+    // Anything unhandled (D1, template render) is transient → retry, so a
     // single wallet's failure never throws out of the batch handler.
     log("unexpected", { wallet, error });
     return "retry";

@@ -17,7 +17,6 @@
           "database_id": "6631e190-0909-4ef2-9058-bf7f53f2f4d4"
         }
       ],
-      "kv_namespaces": [{ "binding": "KV", "id": "4f8ca72af8814ea396c71d477f695c26" }],
       "queues": {
         "consumers": [
           {
@@ -42,7 +41,6 @@
           "database_id": "2a5c8715-7363-428e-8125-64f5934d77de"
         }
       ],
-      "kv_namespaces": [{ "binding": "KV", "id": "e15916a00e004a3eb9d9fc24ac28b250" }],
       "queues": {
         "consumers": [
           {
