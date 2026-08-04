@@ -8,7 +8,14 @@ const migrations = (
   await Promise.all(
     readdirSync(migrationsDir)
       .sort()
-      .map((d) => readD1Migrations(path.join(migrationsDir, d))),
+      .map(async (directory) =>
+        (
+          await readD1Migrations(path.join(migrationsDir, directory))
+        ).map((migration) => ({
+          ...migration,
+          name: `${directory}/${migration.name}`,
+        })),
+      ),
   )
 ).flat();
 
@@ -23,6 +30,7 @@ export default defineConfig({
             "tests/api/auth.test.ts",
             "tests/api/email-validation.test.ts",
             "tests/alert-processor/account.test.ts",
+            "tests/alert-processor/alert-content.test.ts",
           ],
           environment: "node",
           clearMocks: true,
@@ -59,6 +67,37 @@ export default defineConfig({
                 // CJS package that does `class extends EventEmitter`) without
                 // trying to bundle jsx-email itself (which uses Node.js built-ins
                 // and would fail to resolve in a workers context).
+                include: ["jsx-email > @dot/log", "jsx-email > postcss"],
+              },
+            },
+          },
+        },
+      }),
+      // Workers environment — alert-processor: D1 + jsx-email (renderAlertEmail)
+      defineProject({
+        plugins: [
+          cloudflareTest({
+            wrangler: {
+              configPath: "alert-processor/wrangler.jsonc",
+              environment: "staging",
+            },
+            miniflare: {
+              // Processor reads/writes alert_claim and notification_log.
+              bindings: { TEST_MIGRATIONS: migrations },
+            },
+          }),
+        ],
+        test: {
+          name: "alert-processor",
+          include: ["tests/alert-processor/dedup.test.ts", "tests/alert-processor/process-message.integration.test.ts"],
+          setupFiles: ["tests/apply-migrations.ts"],
+          clearMocks: true,
+          restoreMocks: true,
+          deps: {
+            optimizer: {
+              ssr: {
+                enabled: true,
+                // Same jsx-email nested-CJS handling as the api workers project.
                 include: ["jsx-email > @dot/log", "jsx-email > postcss"],
               },
             },
