@@ -17,10 +17,17 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/useSynapse", () => ({
-  default: () => ({ synapse: { payments: { fundSync: mocks.fundSync } } }),
+  default: () => ({
+    constants: { contracts: { usdfc: "0x2222222222222222222222222222222222222222" } },
+    synapse: { payments: { fundSync: mocks.fundSync } },
+  }),
+}));
+vi.mock("wagmi", () => ({
+  useAccount: () => ({ address: "0x1111111111111111111111111111111111111111", chainId: 314 }),
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+  useQuery: () => ({ data: [], isFetching: false }),
 }));
 vi.mock("sonner", () => ({
   toast: { error: mocks.error, info: mocks.info, success: mocks.success },

@@ -20,6 +20,7 @@ import type { Network } from "@/types";
 import { formatDate } from "@/utils/formatter";
 import { calculateFundingRunway, type FundingRunwayInput, USDFC_DECIMALS } from "../data/funding-runway";
 import { calculateProjectedFundingRunway, parseTopUpAmount, submitGuidedTopUp } from "../data/guided-top-up";
+import { SquidQuoteReview } from "./SquidQuoteReview";
 
 type GuidedTopUpDialogProps = {
   accountId: string;
@@ -122,6 +123,7 @@ export function GuidedTopUpDialog({
               You will deposit {parsedAmount === null ? "—" : formatUnits(parsedAmount, USDFC_DECIMALS)} USDFC.
             </p>
           </div>
+          <SquidQuoteReview destinationAmount={parsedAmount} network={network} />
         </div>
         <DialogFooter>
           <Button disabled={isSubmitting} onClick={() => onOpenChange(false)} variant='ghost'>
