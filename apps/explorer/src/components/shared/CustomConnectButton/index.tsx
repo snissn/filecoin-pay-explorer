@@ -1,11 +1,12 @@
 import { Button } from "@filecoin-foundation/ui-filecoin/Button";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { isSupportedChainId } from "@/utils/network";
 import { Balance, NetworkOptions } from "./components";
 
 const CustomConnectButton = () => {
   return (
     <ConnectButton.Custom>
-      {({ account, chain, openChainModal, openConnectModal, mounted }) => {
+      {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
         const ready = mounted;
         const connected = ready && account && chain;
         return (
@@ -32,6 +33,18 @@ const CustomConnectButton = () => {
                   <Button variant='primary' onClick={openChainModal} type='button' size='compact'>
                     Wrong Network
                   </Button>
+                );
+              }
+              if (!isSupportedChainId(chain.id)) {
+                return (
+                  <div className='flex items-stretch gap-4'>
+                    <Button onClick={openChainModal} type='button' size='compact' variant='tertiary'>
+                      {chain.name}
+                    </Button>
+                    <Button onClick={openAccountModal} type='button' size='compact' variant='tertiary'>
+                      {account.displayName}
+                    </Button>
+                  </div>
                 );
               }
               return (

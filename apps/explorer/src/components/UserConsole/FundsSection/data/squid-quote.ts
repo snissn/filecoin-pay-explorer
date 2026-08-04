@@ -1,11 +1,11 @@
 import {
   assertTrustedSquidQuote,
-  quoteSquidRoute,
+  planSquidFunding,
   type SourceToken,
   SQUID_ROUTER_ADDRESS,
-  type SquidQuote,
+  type SquidFundingPlan,
 } from "squid-evm-funding";
-import type { Address } from "viem";
+import { type Address, formatUnits } from "viem";
 
 export const SQUID_SOURCE_CHAINS = [
   { id: 314, name: "Filecoin" },
@@ -18,7 +18,7 @@ export const SQUID_SOURCE_CHAINS = [
   { id: 56, name: "BNB Chain" },
 ] as const;
 
-export function quoteSquidTopUp({
+export async function planSquidTopUp({
   destinationAmount,
   destinationToken,
   integratorId,
@@ -32,31 +32,38 @@ export function quoteSquidTopUp({
   owner: Address;
   source: SourceToken;
   sourceAmount: bigint;
-}): Promise<SquidQuote> {
+}): Promise<SquidFundingPlan> {
   if (!SQUID_SOURCE_CHAINS.some((chain) => chain.id === source.chainId)) {
     throw new Error("Select a supported source network");
   }
   if (integratorId.trim() === "") throw new Error("Squid quotes are unavailable");
 
-  return quoteSquidRoute(
+  const plan = await planSquidFunding(
     {
+      maxSourceAmount: formatUnits(sourceAmount, source.decimals),
       owner,
-      source,
-      sourceAmount,
-      requirement: {
-        amount: destinationAmount,
-        chainId: 314,
-        id: "filecoin-usdfc-top-up",
-        recipient: owner,
-        token: destinationToken,
-      },
+      requirements: [
+        {
+          amount: destinationAmount,
+          chainId: 314,
+          id: "filecoin-usdfc-top-up",
+          recipient: owner,
+          token: destinationToken,
+        },
+      ],
       slippage: 1,
+      sourceChainId: source.chainId,
+      sourceToken: source.token,
     },
     { integratorId },
-  ).then((quote) =>
-    assertTrustedSquidQuote(quote, {
-      spender: SQUID_ROUTER_ADDRESS,
-      target: SQUID_ROUTER_ADDRESS,
-    }),
   );
+  return {
+    ...plan,
+    quotes: plan.quotes.map((quote) =>
+      assertTrustedSquidQuote(quote, {
+        spender: SQUID_ROUTER_ADDRESS,
+        target: SQUID_ROUTER_ADDRESS,
+      }),
+    ),
+  };
 }

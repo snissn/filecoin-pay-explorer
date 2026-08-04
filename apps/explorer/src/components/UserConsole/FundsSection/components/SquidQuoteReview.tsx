@@ -2,29 +2,46 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { fetchSourceTokens, type SquidQuote } from "squid-evm-funding";
+import {
+  fetchSourceTokens,
+  type SquidFundingPlan,
+  type SquidPublicClient,
+  type SquidWalletClient,
+} from "squid-evm-funding";
 import { formatUnits, parseUnits } from "viem";
-import { useAccount } from "wagmi";
+import { estimateTotalFee } from "viem/op-stack";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import useSynapse from "@/hooks/useSynapse";
 import { USDFC_DECIMALS } from "../data/funding-runway";
-import { quoteSquidTopUp, SQUID_SOURCE_CHAINS } from "../data/squid-quote";
+import { executeSquidTopUp } from "../data/squid-execution";
+import { planSquidTopUp, SQUID_SOURCE_CHAINS } from "../data/squid-quote";
 
 type SquidQuoteReviewProps = {
+  acquisitionState: "acquired" | "blocked" | "idle" | "processing";
   destinationAmount: bigint | null;
   network: "calibration" | "mainnet";
+  onAcquired: (amount: bigint) => void;
+  onAcquisitionStateChange: (state: "acquired" | "blocked" | "idle" | "processing") => void;
 };
 
 function displayAmount(amount: bigint, decimals: number, symbol: string) {
   return `${formatUnits(amount, decimals)} ${symbol}`;
 }
 
-export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteReviewProps) {
+export function SquidQuoteReview({
+  acquisitionState,
+  destinationAmount,
+  network,
+  onAcquired,
+  onAcquisitionStateChange,
+}: SquidQuoteReviewProps) {
   const { address, chainId } = useAccount();
   const { constants } = useSynapse();
   const [sourceChainId, setSourceChainId] = useState("");
   const [sourceTokenAddress, setSourceTokenAddress] = useState("");
   const [sourceAmount, setSourceAmount] = useState("");
-  const [quote, setQuote] = useState<SquidQuote | null>(null);
+  const [plan, setPlan] = useState<SquidFundingPlan | null>(null);
+  const [maximumNativeFee, setMaximumNativeFee] = useState("");
   const [error, setError] = useState<string | null>(null);
   const latestQuoteState = useRef({
     address,
@@ -35,6 +52,9 @@ export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteRevie
     sourceTokenAddress,
   });
   const sourceChain = Number(sourceChainId);
+  const sourcePublicClient = usePublicClient({ chainId: sourceChain || undefined });
+  const { data: sourceWalletClient } = useWalletClient({ chainId: sourceChain || undefined });
+  const destinationClient = usePublicClient({ chainId: 314 });
   const integratorId = process.env.NEXT_PUBLIC_SQUID_INTEGRATOR_ID ?? "";
   const { data: tokens = [], isFetching: isLoadingTokens } = useQuery({
     enabled: integratorId !== "" && SQUID_SOURCE_CHAINS.some((chain) => chain.id === sourceChain),
@@ -45,7 +65,7 @@ export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteRevie
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dependencies intentionally invalidate the displayed quote.
   useEffect(() => {
-    setQuote(null);
+    setPlan(null);
   }, [address, chainId, destinationAmount, sourceAmount, sourceChainId, sourceTokenAddress]);
 
   useEffect(() => {
@@ -68,7 +88,7 @@ export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteRevie
     const quotedChainId = chainId;
     const quotedState = { destinationAmount, sourceAmount, sourceChainId, sourceTokenAddress };
     try {
-      const result = await quoteSquidTopUp({
+      const result = await planSquidTopUp({
         destinationAmount,
         destinationToken: constants.contracts.usdfc,
         integratorId,
@@ -86,9 +106,63 @@ export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteRevie
       ) {
         throw new Error("Funding details or wallet changed while requesting the quote.");
       }
-      setQuote(result);
+      setPlan(result);
     } catch (quoteError) {
       setError(quoteError instanceof Error ? quoteError.message : "Squid could not provide a route.");
+    }
+  };
+
+  const acquire = async () => {
+    setError(null);
+    if (acquisitionState === "blocked")
+      return setError("Check your source wallet activity before starting another acquisition.");
+    if (acquisitionState !== "idle") return setError("This acquisition is already complete or in progress.");
+    if (network !== "mainnet") return setError("Squid routes currently target Filecoin mainnet.");
+    if (!address || !source || !plan || destinationAmount === null)
+      return setError("Review a route before acquiring USDFC.");
+    if (chainId !== source.chainId)
+      return setError("Switch your wallet to the selected source network before confirming.");
+    if (!sourcePublicClient || !sourceWalletClient || !destinationClient)
+      return setError("Wallet or network client is unavailable.");
+    if (!sourceWalletClient.account || sourceWalletClient.account.address.toLowerCase() !== address.toLowerCase())
+      return setError("Wallet account changed before confirming.");
+    let maxNativeFee: bigint;
+    try {
+      maxNativeFee = parseUnits(maximumNativeFee, 18);
+    } catch {
+      return setError("Enter a valid maximum network fee.");
+    }
+    if (maxNativeFee <= 0n) return setError("Enter a positive network-fee limit.");
+    if (plan.quotes.some((quote) => quote.expiresAt <= Math.floor(Date.now() / 1_000)))
+      return setError("This route expired. Review it again before acquiring USDFC.");
+
+    const publicClient =
+      source.chainId === 10 || source.chainId === 8453
+        ? {
+            ...sourcePublicClient,
+            estimateTotalFee: (request: Parameters<typeof estimateTotalFee>[1]) =>
+              estimateTotalFee(sourcePublicClient, request),
+          }
+        : sourcePublicClient;
+    let executionStarted = false;
+    onAcquisitionStateChange("processing");
+    try {
+      await executeSquidTopUp({
+        destinationClient: destinationClient as unknown as SquidPublicClient,
+        integratorId,
+        maxNativeFee,
+        onExecutionStart: () => {
+          executionStarted = true;
+        },
+        plan,
+        sourcePublicClient: publicClient as unknown as SquidPublicClient,
+        sourceWalletClient: sourceWalletClient as SquidWalletClient,
+      });
+      onAcquisitionStateChange("acquired");
+      onAcquired(destinationAmount);
+    } catch (executionError) {
+      onAcquisitionStateChange(executionStarted ? "blocked" : "idle");
+      setError(executionError instanceof Error ? executionError.message : "Squid could not complete the acquisition.");
     }
   };
 
@@ -100,7 +174,11 @@ export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteRevie
       </div>
       <label className='grid gap-1'>
         Source network
-        <select value={sourceChainId} onChange={(event) => setSourceChainId(event.target.value)}>
+        <select
+          disabled={acquisitionState !== "idle"}
+          value={sourceChainId}
+          onChange={(event) => setSourceChainId(event.target.value)}
+        >
           <option value=''>Select a network</option>
           {SQUID_SOURCE_CHAINS.map((chain) => (
             <option key={chain.id} value={chain.id}>
@@ -112,7 +190,7 @@ export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteRevie
       <label className='grid gap-1'>
         Source token
         <select
-          disabled={sourceChainId === "" || isLoadingTokens}
+          disabled={acquisitionState !== "idle" || sourceChainId === "" || isLoadingTokens}
           value={sourceTokenAddress}
           onChange={(event) => setSourceTokenAddress(event.target.value)}
         >
@@ -125,16 +203,21 @@ export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteRevie
         </select>
       </label>
       <label className='grid gap-1'>
-        Source amount
+        Maximum source amount
         <input
           min='0'
+          disabled={acquisitionState !== "idle"}
           step='any'
           type='number'
           value={sourceAmount}
           onChange={(event) => setSourceAmount(event.target.value)}
         />
       </label>
-      <button type='button' onClick={review} disabled={!source || destinationAmount === null}>
+      <button
+        type='button'
+        onClick={review}
+        disabled={!source || destinationAmount === null || acquisitionState !== "idle"}
+      >
         Review route
       </button>
       {error && (
@@ -142,18 +225,37 @@ export function SquidQuoteReview({ destinationAmount, network }: SquidQuoteRevie
           {error}
         </p>
       )}
-      {quote && (
+      {plan?.quotes[0] && (
         <div className='grid gap-1 border-t pt-3'>
-          <p>Spend: {displayAmount(quote.sourceAmount, source?.decimals ?? 18, source?.symbol ?? "")}</p>
-          <p>Receive at least: {displayAmount(quote.destinationAmount, USDFC_DECIMALS, "USDFC")}</p>
+          <p>Spend: {displayAmount(plan.quotes[0].sourceAmount, plan.source.decimals, plan.source.symbol)}</p>
+          <p>Receive at least: {displayAmount(plan.quotes[0].destinationAmount, USDFC_DECIMALS, "USDFC")}</p>
           <p>Slippage: 1%</p>
-          <p>Expires: {new Date(quote.expiresAt * 1_000).toLocaleString()}</p>
-          <p>Route: {quote.actions.map((action) => action.description ?? action.type).join(" → ")}</p>
-          {quote.costs.length > 0 && (
+          <p>Expires: {new Date(plan.quotes[0].expiresAt * 1_000).toLocaleString()}</p>
+          <p>Route: {plan.quotes[0].actions.map((action) => action.description ?? action.type).join(" → ")}</p>
+          {plan.quotes[0].costs.length > 0 && (
             <p>
               Fees:{" "}
-              {quote.costs.map((cost) => displayAmount(cost.amount, cost.token.decimals, cost.token.symbol)).join(", ")}
+              {plan.quotes[0].costs
+                .map((cost) => displayAmount(cost.amount, cost.token.decimals, cost.token.symbol))
+                .join(", ")}
             </p>
+          )}
+          <label className='grid gap-1 pt-2'>
+            Maximum network fee (native token)
+            <input
+              min='0'
+              disabled={acquisitionState !== "idle"}
+              onChange={(event) => setMaximumNativeFee(event.target.value)}
+              step='any'
+              type='number'
+              value={maximumNativeFee}
+            />
+          </label>
+          <button disabled={acquisitionState !== "idle"} onClick={acquire} type='button'>
+            {acquisitionState === "processing" ? "Acquiring USDFC..." : "Acquire USDFC"}
+          </button>
+          {acquisitionState === "blocked" && (
+            <p>Outcome needs verification. Check wallet activity before starting another one.</p>
           )}
         </div>
       )}

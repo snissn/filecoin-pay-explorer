@@ -24,6 +24,9 @@ vi.mock("@/hooks/useSynapse", () => ({
 }));
 vi.mock("wagmi", () => ({
   useAccount: () => ({ address: "0x1111111111111111111111111111111111111111", chainId: 314 }),
+  usePublicClient: () => ({}),
+  useSwitchChain: () => ({ switchChainAsync: vi.fn() }),
+  useWalletClient: () => ({ data: {} }),
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
@@ -55,6 +58,24 @@ vi.mock("@filecoin-pay/ui/components/dialog", () => ({
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
 }));
+vi.mock("./SquidQuoteReview", () => ({
+  SquidQuoteReview: ({
+    onAcquired,
+    onAcquisitionStateChange,
+  }: {
+    onAcquired: (amount: bigint) => void;
+    onAcquisitionStateChange: (state: "processing") => void;
+  }) => (
+    <>
+      <button onClick={() => onAcquired(2_000_000_000_000_000_000n)} type='button'>
+        Simulate acquired USDFC
+      </button>
+      <button onClick={() => onAcquisitionStateChange("processing")} type='button'>
+        Simulate acquisition in progress
+      </button>
+    </>
+  ),
+}));
 
 const summary = {
   availableFunds: 0n,
@@ -83,6 +104,7 @@ describe("GuidedTopUpDialog", () => {
     onOpenChange: (open: boolean) => void,
     dialogSummary: typeof summary = summary,
     amount = "1.25",
+    open = true,
   ) => {
     await act(async () =>
       root.render(
@@ -91,7 +113,7 @@ describe("GuidedTopUpDialog", () => {
           amount={amount}
           network='calibration'
           onOpenChange={onOpenChange}
-          open
+          open={open}
           summary={dialogSummary}
         />,
       ),
@@ -136,11 +158,13 @@ describe("GuidedTopUpDialog", () => {
 
     await act(async () => confirmTransaction?.({ receipt: { status: "success" } }));
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["account", "0xaccount", "funding-summary", "calibration"],
+      queryKey: ["account", "0x1111111111111111111111111111111111111111", "funding-summary", "calibration"],
     });
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["account", "0xaccount", "tokens"],
     });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["balance"] });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["readContract"] });
     expect(mocks.success).toHaveBeenCalledWith("USDFC top-up confirmed");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -172,5 +196,31 @@ describe("GuidedTopUpDialog", () => {
     await renderDialog(vi.fn(), { ...summary, debt: 2_000_000_000_000_000_000n }, "0.5");
 
     expect(container.textContent?.match(/Underfunded/g)).toHaveLength(2);
+  });
+
+  it("keeps an acquired amount across a failed deposit and never changes it on reopen", async () => {
+    mocks.fundSync.mockRejectedValue(new Error("User rejected"));
+    const onOpenChange = vi.fn();
+    await renderDialog(onOpenChange, summary, "1.25");
+    await act(async () => button("Simulate acquired USDFC").click());
+
+    const input = container.querySelector("#guided-top-up-amount");
+    if (!(input instanceof HTMLInputElement)) throw new Error("Missing top-up amount input");
+    expect(input.disabled).toBe(true);
+    await act(async () => button("Deposit acquired USDFC").click());
+    expect(mocks.fundSync).toHaveBeenCalledWith({ amount: 2_000_000_000_000_000_000n, onHash: expect.any(Function) });
+
+    await renderDialog(onOpenChange, summary, "1.25", false);
+    await renderDialog(onOpenChange, summary, "1.25", true);
+    expect(button("Deposit acquired USDFC")).toBeTruthy();
+    expect(input.disabled).toBe(true);
+  });
+
+  it("does not allow a direct deposit while acquisition is in progress", async () => {
+    await renderDialog(vi.fn());
+    await act(async () => button("Simulate acquisition in progress").click());
+
+    expect(button("Acquiring USDFC...").disabled).toBe(true);
+    expect(mocks.fundSync).not.toHaveBeenCalled();
   });
 });
