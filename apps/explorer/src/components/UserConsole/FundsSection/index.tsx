@@ -1,6 +1,7 @@
 import { Button } from "@filecoin-foundation/ui-filecoin/Button";
 import type { Account, UserToken } from "@filecoin-pay/types";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { DepositDialog } from "@/components/UserConsole/DepositDialog";
 import { WithdrawDialog } from "@/components/UserConsole/WithdrawDialog";
@@ -8,7 +9,15 @@ import { useAccountTokens } from "@/hooks/useAccountDetails";
 import { useAccountFundingSummary } from "@/hooks/useAccountFundingSummary";
 import useSynapse from "@/hooks/useSynapse";
 import { getNetworkFromChainId } from "@/utils/network";
-import { FundingRunway, FundsEmptyState, FundsErrorState, FundsLoadingState, FundsTable } from "./components";
+import {
+  FundingRunway,
+  FundsEmptyState,
+  FundsErrorState,
+  FundsLoadingState,
+  FundsTable,
+  GuidedTopUpDialog,
+} from "./components";
+import { withoutTopUpSearchParam } from "./data/guided-top-up";
 
 interface FundsSectionProps {
   account: Account;
@@ -18,12 +27,20 @@ export const FundsSection: React.FC<FundsSectionProps> = ({ account }) => {
   const [depositDialogOpen, setDepositDialogOpen] = useState(false);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
   const [selectedToken, setSelectedToken] = useState<UserToken | null>(null);
+  const [guidedTopUpAmount, setGuidedTopUpAmount] = useState("");
 
   const { chainId } = useAccount();
   const { synapse } = useSynapse();
   const walletNetwork = getNetworkFromChainId(chainId);
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [guidedTopUpOpen, setGuidedTopUpOpen] = useState(searchParams.get("topUp") === "1");
 
-  const { data, isLoading, isError } = useAccountTokens(account.id, 1, { networkOverride: walletNetwork });
+  const { data, isLoading, isError } = useAccountTokens(account.id, 1, {
+    networkOverride: walletNetwork,
+    refetchInterval: 30_000,
+  });
   const { data: fundingSummary, isError: isFundingSummaryError } = useAccountFundingSummary(
     account.id,
     walletNetwork,
@@ -43,6 +60,25 @@ export const FundsSection: React.FC<FundsSectionProps> = ({ account }) => {
   const handleOpenDeposit = useCallback(() => {
     setDepositDialogOpen(true);
   }, []);
+
+  const handleOpenGuidedTopUp = useCallback((amount: string) => {
+    setGuidedTopUpAmount(amount);
+    setGuidedTopUpOpen(true);
+  }, []);
+
+  const handleGuidedTopUpOpenChange = useCallback(
+    (open: boolean) => {
+      setGuidedTopUpOpen(open);
+      if (!open && searchParams.has("topUp")) {
+        router.replace(`${pathname}${withoutTopUpSearchParam(searchParams)}`);
+      }
+    },
+    [pathname, router, searchParams],
+  );
+
+  useEffect(() => {
+    if (searchParams.get("topUp") === "1") setGuidedTopUpOpen(true);
+  }, [searchParams]);
 
   // Prepare data with action handlers
   const tableData = useMemo(
@@ -89,7 +125,19 @@ export const FundsSection: React.FC<FundsSectionProps> = ({ account }) => {
           Funding runway is unavailable. Check your wallet connection and try again.
         </p>
       )}
-      {fundingSummary && <FundingRunway summary={fundingSummary} />}
+      {fundingSummary && (
+        <>
+          <FundingRunway onTopUp={handleOpenGuidedTopUp} summary={fundingSummary} />
+          <GuidedTopUpDialog
+            accountId={account.id}
+            amount={guidedTopUpAmount}
+            network={walletNetwork}
+            onOpenChange={handleGuidedTopUpOpenChange}
+            open={guidedTopUpOpen}
+            summary={fundingSummary}
+          />
+        </>
+      )}
       {fundsContent}
     </div>
   );
