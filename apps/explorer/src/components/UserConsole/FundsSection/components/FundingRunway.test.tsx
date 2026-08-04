@@ -12,8 +12,8 @@ describe("FundingRunway", () => {
     [30n, "Funded"],
     [7n, "Low"],
     [3n, "Urgent"],
-    [2n, "Critical"],
-    [1n, "Critical"],
+    [2n, "Urgent"],
+    [1n, "Urgent"],
     [0n, "Critical"],
   ] as const)("renders %i days as %s", (days, status) => {
     const markup = renderToStaticMarkup(

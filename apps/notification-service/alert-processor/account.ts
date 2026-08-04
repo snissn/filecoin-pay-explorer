@@ -55,7 +55,7 @@ export const EPOCHS_PER_DAY = TIME_CONSTANTS.EPOCHS_PER_DAY;
 export const DEFAULT_HEALTH_THRESHOLDS: HealthThresholds = {
   warning: 30,
   critical: 7,
-  emergency: 3,
+  emergency: 1,
 };
 
 /**

@@ -85,7 +85,7 @@ export async function processMessage(
       fundedUntil: content.fundedUntil,
       daysRemaining: content.daysRemaining,
       topUpAmount: content.topUpAmount,
-      topUpUrl: `${env.FRONTEND_ORIGIN}/console`,
+      topUpUrl: `${env.FRONTEND_ORIGIN}/console?topUp=1`,
     };
     const { subject, html, text } = await renderAlertEmail(props);
 

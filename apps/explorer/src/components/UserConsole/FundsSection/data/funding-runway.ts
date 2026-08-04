@@ -50,7 +50,7 @@ export function calculateFundingRunway({
 }
 
 function fundingStatus(runwayInEpochs: bigint, debt: bigint): FundingStatus {
-  if (debt > 0n || runwayInEpochs < 3n * EPOCHS_PER_DAY) return "critical";
+  if (debt > 0n || runwayInEpochs < EPOCHS_PER_DAY) return "critical";
   if (runwayInEpochs < 7n * EPOCHS_PER_DAY) return "urgent";
   if (runwayInEpochs < 30n * EPOCHS_PER_DAY) return "low";
   if (runwayInEpochs < ONE_YEAR_EPOCHS) return "funded";
