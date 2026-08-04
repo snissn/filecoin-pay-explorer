@@ -20,7 +20,7 @@ function summaryWithRunwayDays(days: number): AccountSummary {
 
 const HEALTHY: AccountSummary = { epoch: 1000n, runwayInEpochs: 0n, lockupRatePerEpoch: 0n, debt: 0n };
 const WARNING = summaryWithRunwayDays(20); // < 30d, >= 7d
-const CRITICAL = summaryWithRunwayDays(5); // < 7d, >= 3d
+const CRITICAL = summaryWithRunwayDays(5); // < 7d, >= 1d
 
 function deps(summary: AccountSummary): ProcessDeps & { sendEmail: ReturnType<typeof vi.fn> } {
   return {
@@ -70,7 +70,13 @@ describe("processMessage", () => {
 
     expect(action).toBe("ack");
     expect(d.sendEmail).toHaveBeenCalledOnce();
-    expect(d.sendEmail).toHaveBeenCalledWith(env, expect.objectContaining({ to: EMAIL }));
+    expect(d.sendEmail).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({
+        to: EMAIL,
+        html: expect.stringContaining("https://pay.filecoin.cloud/console?topUp=1"),
+      }),
+    );
     expect(await logCount()).toBe(1);
     expect(await claimedTier()).toBe("warning");
   });

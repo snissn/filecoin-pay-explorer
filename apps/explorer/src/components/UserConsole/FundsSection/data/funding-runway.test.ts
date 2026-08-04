@@ -21,13 +21,19 @@ describe("calculateFundingRunway", () => {
     [30n, "funded"],
     [7n, "low"],
     [3n, "urgent"],
-    [2n, "critical"],
-    [1n, "critical"],
+    [2n, "urgent"],
+    [1n, "urgent"],
     [0n, "critical"],
   ] as const)("reports %i days as %s", (days, status) => {
     const result = calculateFundingRunway(input({ runwayInEpochs: days * EPOCHS_PER_DAY }));
 
     expect(result.status).toBe(status);
+  });
+
+  it("reports positive runway below one day as critical", () => {
+    const result = calculateFundingRunway(input({ runwayInEpochs: EPOCHS_PER_DAY - 1n }));
+
+    expect(result.status).toBe("critical");
   });
 
   it("reports on-chain debt as critical and includes it in the suggested top-up", () => {

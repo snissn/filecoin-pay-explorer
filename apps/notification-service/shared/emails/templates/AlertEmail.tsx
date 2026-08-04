@@ -47,9 +47,9 @@ const ALERT_CONFIG = {
     badgeText: "Emergency",
     subject: "Urgent: your Filecoin Pay services will stop soon",
     title: "Service terminating imminently",
-    previewText: "Emergency — your Filecoin Pay services will terminate in less than 3 days.",
+    previewText: "Emergency — your Filecoin Pay services will terminate in less than 1 day.",
     description:
-      "Your account has less than 3 days of available funding. Providers will begin terminating services imminently unless you add additional funds. Top up now to keep them running.",
+      "Your account has less than 1 day of available funding. Providers will begin terminating services imminently unless you add additional funds. Top up now to keep them running.",
   },
 } as const;
 
