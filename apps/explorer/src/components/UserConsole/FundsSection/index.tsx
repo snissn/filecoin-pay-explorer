@@ -1,12 +1,14 @@
 import { Button } from "@filecoin-foundation/ui-filecoin/Button";
 import type { Account, UserToken } from "@filecoin-pay/types";
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { DepositDialog } from "@/components/UserConsole/DepositDialog";
 import { WithdrawDialog } from "@/components/UserConsole/WithdrawDialog";
 import { useAccountTokens } from "@/hooks/useAccountDetails";
+import { useAccountFundingSummary } from "@/hooks/useAccountFundingSummary";
+import useSynapse from "@/hooks/useSynapse";
 import { getNetworkFromChainId } from "@/utils/network";
-import { FundsEmptyState, FundsErrorState, FundsLoadingState, FundsTable } from "./components";
+import { FundingRunway, FundsEmptyState, FundsErrorState, FundsLoadingState, FundsTable } from "./components";
 
 interface FundsSectionProps {
   account: Account;
@@ -18,10 +20,15 @@ export const FundsSection: React.FC<FundsSectionProps> = ({ account }) => {
   const [selectedToken, setSelectedToken] = useState<UserToken | null>(null);
 
   const { chainId } = useAccount();
+  const { synapse } = useSynapse();
   const walletNetwork = getNetworkFromChainId(chainId);
 
-  // Fetch all tokens for this account (no pagination for console view)
   const { data, isLoading, isError } = useAccountTokens(account.id, 1, { networkOverride: walletNetwork });
+  const { data: fundingSummary, isError: isFundingSummaryError } = useAccountFundingSummary(
+    account.id,
+    walletNetwork,
+    synapse,
+  );
 
   const handleDeposit = useCallback((userToken: UserToken) => {
     setSelectedToken(userToken);
@@ -47,38 +54,43 @@ export const FundsSection: React.FC<FundsSectionProps> = ({ account }) => {
       })) || [],
     [data?.userTokens, handleDeposit, handleWithdraw],
   );
-
+  let fundsContent: ReactNode;
   if (isLoading) {
-    return <FundsLoadingState onDeposit={handleOpenDeposit} />;
-  }
-
-  if (isError) {
-    return <FundsErrorState onDeposit={handleOpenDeposit} />;
-  }
-
-  if (!data || data.userTokens.length === 0) {
-    return <FundsEmptyState onDeposit={handleOpenDeposit} />;
-  }
-
-  return (
-    <>
-      <div className='flex flex-col gap-4'>
+    fundsContent = <FundsLoadingState onDeposit={handleOpenDeposit} />;
+  } else if (isError) {
+    fundsContent = <FundsErrorState onDeposit={handleOpenDeposit} />;
+  } else if (!data || data.userTokens.length === 0) {
+    fundsContent = <FundsEmptyState onDeposit={handleOpenDeposit} />;
+  } else {
+    fundsContent = (
+      <>
         <div className='flex items-center justify-between'>
           <h3 className='text-2xl font-medium'>Funds</h3>
           <Button className='py-2' variant='primary' onClick={handleOpenDeposit}>
             Deposit
           </Button>
         </div>
-
         <FundsTable data={tableData} />
-      </div>
 
-      {/* Deposit Dialogs */}
-      <DepositDialog userToken={selectedToken} open={depositDialogOpen} onOpenChange={setDepositDialogOpen} />
+        {/* Deposit Dialogs */}
+        <DepositDialog userToken={selectedToken} open={depositDialogOpen} onOpenChange={setDepositDialogOpen} />
 
-      {selectedToken && (
-        <WithdrawDialog userToken={selectedToken} open={withdrawDialogOpen} onOpenChange={setWithdrawDialogOpen} />
+        {selectedToken && (
+          <WithdrawDialog userToken={selectedToken} open={withdrawDialogOpen} onOpenChange={setWithdrawDialogOpen} />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <div className='flex flex-col gap-4'>
+      {isFundingSummaryError && (
+        <p className='text-sm text-destructive' role='alert'>
+          Funding runway is unavailable. Check your wallet connection and try again.
+        </p>
       )}
-    </>
+      {fundingSummary && <FundingRunway summary={fundingSummary} />}
+      {fundsContent}
+    </div>
   );
 };

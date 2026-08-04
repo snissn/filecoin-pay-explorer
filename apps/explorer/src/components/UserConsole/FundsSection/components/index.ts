@@ -1,3 +1,4 @@
+export { FundingRunway } from "./FundingRunway";
 export { default as FundsEmptyState } from "./FundsEmptyState";
 export { default as FundsErrorState } from "./FundsErrorState";
 export { default as FundsLoadingState } from "./FundsLoadingState";
