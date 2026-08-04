@@ -21,15 +21,16 @@ import { withoutTopUpSearchParam } from "./data/guided-top-up";
 
 interface FundsSectionProps {
   account: Account;
+  topUpOnly?: boolean;
 }
 
-export const FundsSection: React.FC<FundsSectionProps> = ({ account }) => {
+export const FundsSection: React.FC<FundsSectionProps> = ({ account, topUpOnly = false }) => {
   const [depositDialogOpen, setDepositDialogOpen] = useState(false);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
   const [selectedToken, setSelectedToken] = useState<UserToken | null>(null);
   const [guidedTopUpAmount, setGuidedTopUpAmount] = useState("");
 
-  const { chainId } = useAccount();
+  const { address, chainId } = useAccount();
   const { synapse } = useSynapse();
   const walletNetwork = getNetworkFromChainId(chainId);
   const pathname = usePathname();
@@ -42,7 +43,7 @@ export const FundsSection: React.FC<FundsSectionProps> = ({ account }) => {
     refetchInterval: 30_000,
   });
   const { data: fundingSummary, isError: isFundingSummaryError } = useAccountFundingSummary(
-    account.id,
+    address,
     walletNetwork,
     synapse,
   );
@@ -120,25 +121,23 @@ export const FundsSection: React.FC<FundsSectionProps> = ({ account }) => {
 
   return (
     <div className='flex flex-col gap-4'>
-      {isFundingSummaryError && (
+      {isFundingSummaryError && !topUpOnly && (
         <p className='text-sm text-destructive' role='alert'>
           Funding runway is unavailable. Check your wallet connection and try again.
         </p>
       )}
+      {fundingSummary && !topUpOnly && <FundingRunway onTopUp={handleOpenGuidedTopUp} summary={fundingSummary} />}
       {fundingSummary && (
-        <>
-          <FundingRunway onTopUp={handleOpenGuidedTopUp} summary={fundingSummary} />
-          <GuidedTopUpDialog
-            accountId={account.id}
-            amount={guidedTopUpAmount}
-            network={walletNetwork}
-            onOpenChange={handleGuidedTopUpOpenChange}
-            open={guidedTopUpOpen}
-            summary={fundingSummary}
-          />
-        </>
+        <GuidedTopUpDialog
+          accountId={account.id}
+          amount={guidedTopUpAmount}
+          network={walletNetwork}
+          onOpenChange={handleGuidedTopUpOpenChange}
+          open={guidedTopUpOpen}
+          summary={fundingSummary}
+        />
       )}
-      {fundsContent}
+      {!topUpOnly && fundsContent}
     </div>
   );
 };

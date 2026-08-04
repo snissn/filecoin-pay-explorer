@@ -96,4 +96,13 @@ describe("FundsSection", () => {
     await act(async () => root.unmount());
     container.remove();
   });
+
+  it("keeps only guided top-up mounted for an external source chain", () => {
+    navigation.searchParams = new URLSearchParams("topUp=1");
+    const markup = renderToStaticMarkup(<FundsSection account={account} topUpOnly />);
+
+    expect(markup).toContain("Guided top-up open");
+    expect(markup).not.toContain("Funding runway");
+    expect(markup).not.toContain("No funds");
+  });
 });
