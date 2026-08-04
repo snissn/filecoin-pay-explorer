@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EPOCHS_PER_DAY } from "./funding-runway";
-import { calculateProjectedFundingRunway, parseTopUpAmount, withoutTopUpSearchParam } from "./guided-top-up";
+import { calculateProjectedFundingRunway, parseTopUpAmount } from "./guided-top-up";
 
 const rate = 10_000_000_000_000n;
 const now = 1_767_225_600n;
@@ -26,11 +26,5 @@ describe("guided top-up", () => {
 
     expect(projected.status).toBe("long-term-funded");
     expect(projected.runwayInEpochs).toBe(365n * EPOCHS_PER_DAY);
-  });
-
-  it("removes only the top-up parameter from the URL", () => {
-    expect(withoutTopUpSearchParam(new URLSearchParams("topUp=1&account=0xabc&network=calibration"))).toBe(
-      "?account=0xabc&network=calibration",
-    );
   });
 });

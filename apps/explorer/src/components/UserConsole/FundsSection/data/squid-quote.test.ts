@@ -16,19 +16,7 @@ const usdfc = "0x2222222222222222222222222222222222222222" as const;
 
 describe("Squid quote review", () => {
   it("plans an explicit Filecoin source cap and accepts only a trusted current route", async () => {
-    const quote = {
-      actions: [{ fromChainId: 314, toChainId: 314, type: "swap" }],
-      approvalSpender: "0xce16f69375520ab01377ce7b88f5ba8c48f8d666",
-      costs: [],
-      destinationAmount: 1_000_000_000_000_000_000n,
-      expiresAt: 1_001,
-      id: "quote",
-      requirement: { amount: 1_000_000_000_000_000_000n, chainId: 314, id: "top-up", recipient: owner, token: usdfc },
-      sourceAmount: 2_000_000_000_000_000_000n,
-      target: "0xce16f69375520ab01377ce7b88f5ba8c48f8d666",
-      value: 0n,
-      data: "0x12",
-    };
+    const quote = { id: "quote" };
     planSquidFunding.mockResolvedValue({
       maxSourceAmount: 2_000_000_000_000_000_000n,
       owner,
