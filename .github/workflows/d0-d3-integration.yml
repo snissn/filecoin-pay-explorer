@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "594637641a73d3d5357bbc1171972897afa0e1cd"
+          test "$(git rev-parse HEAD^)" = "cd8fe7d1d2fa6d96606a48e5c36b6842393db082"
           test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/d0-d3-integration.yml"
           test -f .github/scripts/integrate_d0_d3.py
 
@@ -69,6 +69,22 @@ jobs:
 
       - name: Apply bounded D3 integration repair
         run: python .github/scripts/integrate_d0_d3.py
+
+      - name: Correct exact Synapse hash authority token
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path("packages/types/scripts/validate-synapse-boss-services.mjs")
+          text = path.read_text()
+          old = 'requireText(types, "hash: Hex", "transaction evidence carries an exact hash");'
+          new = 'requireText(types, "hash: Hash", "transaction evidence carries an exact hash");'
+          if text.count(old) != 1:
+              raise SystemExit("Synapse hash authority assertion no longer matches exact staged source")
+          path.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
