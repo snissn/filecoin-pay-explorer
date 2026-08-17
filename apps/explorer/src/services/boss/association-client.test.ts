@@ -51,6 +51,7 @@ function environment() {
 
 function association(overrides: Record<string, unknown> = {}) {
   return {
+    __typename: "RailSubscription" as const,
     id: "association-1",
     chainId: "314159",
     filecoinPay: ADDRESS("1"),

@@ -14,7 +14,8 @@
     "src/hooks/useBossGraphQLQuery.ts",
     "src/hooks/useBossPayRailAssociation.ts",
     "src/hooks/useGraphQLQuery.ts",
-    "src/services/boss/**/*.ts"
+    "src/services/boss/**/*.ts",
+    "src/types/svg.d.ts"
   ],
   "exclude": ["node_modules", ".next"]
 }

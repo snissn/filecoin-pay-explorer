@@ -55,7 +55,7 @@ export default function BossPayAssociation({
               <li key={reason}>{reason}</li>
             ))}
           </ul>
-          <Button className='mt-3' onClick={() => void refetch()} variant='secondary' size='compact'>
+          <Button className='mt-3' onClick={() => void refetch()} variant='tertiary' size='compact'>
             Retry proof
           </Button>
         </div>
@@ -119,7 +119,11 @@ export default function BossPayAssociation({
   return standalone ? <PageSection backgroundVariant='light'>{content}</PageSection> : content;
 }
 
-function AssociationBadge({ status }: { status: Exclude<ReturnType<typeof useBossPayRailAssociation>["state"]["status"], "no-boss-record"> }) {
+function AssociationBadge({
+  status,
+}: {
+  status: Exclude<ReturnType<typeof useBossPayRailAssociation>["state"]["status"], "no-boss-record">;
+}) {
   const labels = {
     loading: "Checking",
     "pending-index": "Pending index",
