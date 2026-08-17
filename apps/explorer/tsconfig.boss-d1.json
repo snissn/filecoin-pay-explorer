@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "react", "react-dom"]
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/app/[network]/services/**/*.tsx",
+    "src/components/BossService/**/*.tsx",
+    "src/components/BossServices/**/*.tsx",
+    "src/components/shared/Header.tsx",
+    "src/hooks/useBossGraphQLQuery.ts",
+    "src/services/boss/**/*.ts"
+  ],
+  "exclude": ["node_modules", ".next"]
+}

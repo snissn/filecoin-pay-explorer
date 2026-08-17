@@ -64,9 +64,57 @@ export const GET_BOSS_RESOURCE = gql`
   }
 `;
 
+export const GET_BOSS_RESOURCE_FOR_SUBSCRIPTION = gql`
+  query GetBossResourceForSubscription($subscriptionId: Bytes!) {
+    resourceSubscriptions(where: { subscriptionId: $subscriptionId }, first: 2) {
+      __typename
+      id
+      chainId
+      bossAccount
+      resourceKey
+      subscriptionId
+      active
+    }
+  }
+`;
+
 export const GET_BOSS_SUBSCRIPTION = gql`
   query GetBossSubscription($id: ID!) {
     subscription(id: $id) {
+      __typename
+      id
+      chainId
+      bossAccount
+      subscriptionId
+      railId
+      resourceKey
+      provider
+      beneficiary
+      token
+      resourceAdapter
+      pricingAdapter
+      state
+      ratePerEpoch
+      fixedBudget
+      lifetimeCapGross
+      totalRawGross
+      totalChargedGross
+      claimCount
+      quoteEpoch
+      quoteValidThroughEpoch
+      resourceStatusHash
+      activatedEpoch
+      pausedEpoch
+      terminationRequestedEpoch
+      payEndEpoch
+      finalSettledEpoch
+    }
+  }
+`;
+
+export const LIST_BOSS_SUBSCRIPTIONS = gql`
+  query ListBossSubscriptions($first: Int!, $skip: Int!) {
+    subscriptions(first: $first, skip: $skip, orderBy: activatedEpoch, orderDirection: desc) {
       __typename
       id
       chainId

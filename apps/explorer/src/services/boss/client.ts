@@ -15,9 +15,11 @@ import {
   GET_BOSS_INDEX_STATUS,
   GET_BOSS_RAIL_ASSOCIATION,
   GET_BOSS_RESOURCE,
+  GET_BOSS_RESOURCE_FOR_SUBSCRIPTION,
   GET_BOSS_SERVICE,
   GET_BOSS_SUBSCRIPTION,
   GET_BOSS_USAGE_CLAIMS,
+  LIST_BOSS_SUBSCRIPTIONS,
 } from "./queries";
 
 interface BossIndexStatusResponse {
@@ -40,8 +42,16 @@ interface BossResourceResponse {
   resourceSubscription: ResourceSubscription | null;
 }
 
+interface BossResourcesResponse {
+  resourceSubscriptions: ResourceSubscription[];
+}
+
 interface BossSubscriptionResponse {
   subscription: Subscription | null;
+}
+
+interface BossSubscriptionsResponse {
+  subscriptions: Subscription[];
 }
 
 interface BossUsageClaimsResponse {
@@ -58,13 +68,17 @@ export interface BossIndexStatus {
   deployment: string;
 }
 
+export type BossResourceIdentity = Pick<Subscription, "bossAccount" | "resourceKey" | "subscriptionId">;
+
 export interface BossGraphQLClient {
   readonly config: BossDataSourceConfig;
   getIndexStatus(): Promise<BossIndexStatus>;
   getAccount(id: string): Promise<BossAccount | null>;
   getService(id: string): Promise<BossService | null>;
   getResource(id: string): Promise<ResourceSubscription | null>;
+  getResourceForSubscription(identity: BossResourceIdentity): Promise<ResourceSubscription | null>;
   getSubscription(id: string): Promise<Subscription | null>;
+  listSubscriptions(first?: number, skip?: number): Promise<Subscription[]>;
   getUsageClaims(subscriptionId: string, first?: number, skip?: number): Promise<UsageClaim[]>;
   getRailAssociation(subscriptionId: string, railId: bigint): Promise<RailSubscription | null>;
 }
@@ -150,6 +164,28 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       assertIndexedChain(config, resource.chainId, "Boss resource");
       return resource;
     },
+    async getResourceForSubscription(identity) {
+      const response = await client.request<BossResourcesResponse>(GET_BOSS_RESOURCE_FOR_SUBSCRIPTION, {
+        subscriptionId: identity.subscriptionId,
+      });
+      if (response.resourceSubscriptions.length > 1) {
+        throw new BossDataSourceError(
+          "INDEXING_ERROR",
+          `Boss index returned multiple resource associations for subscription ${identity.subscriptionId}`,
+        );
+      }
+
+      const resource = response.resourceSubscriptions[0];
+      if (!resource) {
+        return null;
+      }
+
+      assertIndexedChain(config, resource.chainId, "Boss resource");
+      assertIndexedIdentity(resource.subscriptionId, identity.subscriptionId, "Boss resource subscription id");
+      assertIndexedIdentity(resource.resourceKey, identity.resourceKey, "Boss resource key");
+      assertIndexedIdentity(resource.bossAccount, identity.bossAccount, "Boss resource account");
+      return resource;
+    },
     async getSubscription(id) {
       const subscription = (await client.request<BossSubscriptionResponse>(GET_BOSS_SUBSCRIPTION, { id })).subscription;
       if (!subscription) {
@@ -157,16 +193,26 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       }
 
       assertIndexedIdentity(subscription.id, id, "Boss subscription id");
-      assertIndexedChain(config, subscription.chainId, "Boss subscription");
-      assertIndexedAuthority(subscription.token, config.manifest.dependencies.token, "Boss subscription payment token");
+      assertSubscriptionAuthority(config, subscription);
       return subscription;
     },
+    async listSubscriptions(first = 100, skip = 0) {
+      assertPagination(first, skip, "Boss subscriptions");
+      const response = await client.request<BossSubscriptionsResponse>(LIST_BOSS_SUBSCRIPTIONS, { first, skip });
+      assertUniqueIds(response.subscriptions, "Boss subscriptions");
+      for (const subscription of response.subscriptions) {
+        assertSubscriptionAuthority(config, subscription);
+      }
+      return response.subscriptions;
+    },
     async getUsageClaims(subscriptionId, first = 100, skip = 0) {
+      assertPagination(first, skip, "Boss usage claims");
       const response = await client.request<BossUsageClaimsResponse>(GET_BOSS_USAGE_CLAIMS, {
         subscriptionId,
         first,
         skip,
       });
+      assertUniqueIds(response.usageClaims, "Boss usage claims");
       for (const claim of response.usageClaims) {
         assertIndexedChain(config, claim.chainId, "Boss usage claim");
         assertIndexedIdentity(claim.subscriptionId, subscriptionId, "Boss usage claim subscription id");
@@ -206,6 +252,30 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       return association;
     },
   };
+}
+
+function assertSubscriptionAuthority(config: BossDataSourceConfig, subscription: Subscription): void {
+  assertIndexedChain(config, subscription.chainId, "Boss subscription");
+  assertIndexedAuthority(subscription.token, config.manifest.dependencies.token, "Boss subscription payment token");
+}
+
+function assertPagination(first: number, skip: number, label: string): void {
+  if (!Number.isInteger(first) || first < 1 || first > 100) {
+    throw new BossDataSourceError("INVALID_QUERY", `${label} page size must be an integer between 1 and 100`);
+  }
+  if (!Number.isInteger(skip) || skip < 0) {
+    throw new BossDataSourceError("INVALID_QUERY", `${label} skip must be a non-negative integer`);
+  }
+}
+
+function assertUniqueIds(entities: readonly { id: string }[], label: string): void {
+  const ids = new Set<string>();
+  for (const entity of entities) {
+    if (ids.has(entity.id)) {
+      throw new BossDataSourceError("INDEXING_ERROR", `${label} returned duplicate entity id ${entity.id}`);
+    }
+    ids.add(entity.id);
+  }
 }
 
 function assertIndexedChain(config: BossDataSourceConfig, actualChainId: string, entity: string): void {
