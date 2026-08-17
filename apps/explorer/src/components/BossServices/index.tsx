@@ -8,9 +8,10 @@ import { SectionContent } from "@filecoin-foundation/ui-filecoin/SectionContent"
 import type { Subscription } from "@filecoin-pay/types/boss";
 import { AlertCircle, Boxes } from "lucide-react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useBlockNumber } from "wagmi";
+import { getChain } from "@/constants/chains";
 import { useBossGraphQLQuery } from "@/hooks/useBossGraphQLQuery";
-import useNetwork from "@/hooks/useNetwork";
 import {
   describeBossIndexHealth,
   describeQuoteFreshness,
@@ -19,6 +20,7 @@ import {
   formatLifetimeCap,
   formatRemainingLifetimeCap,
 } from "@/services/boss/presentation";
+import type { Network } from "@/types";
 import { BossStateBadge, BossStatusPanel } from "./shared";
 
 function errorMessage(error: unknown): string {
@@ -26,14 +28,16 @@ function errorMessage(error: unknown): string {
 }
 
 export default function BossServices() {
-  const { network } = useNetwork();
-  const { data: observedBlock } = useBlockNumber({ watch: true });
+  const { network } = useParams<{ network: Network }>();
+  const { data: observedBlock } = useBlockNumber({ chainId: getChain(network).id, watch: true });
   const subscriptionsQuery = useBossGraphQLQuery<Subscription[]>({
+    networkOverride: network,
     queryKey: ["subscriptions", "first-page"],
     query: (client) => client.listSubscriptions(100, 0),
     refetchInterval: 30_000,
   });
   const indexQuery = useBossGraphQLQuery({
+    networkOverride: network,
     queryKey: ["index-status"],
     query: (client) => client.getIndexStatus(),
     refetchInterval: 15_000,
@@ -140,7 +144,9 @@ export default function BossServices() {
                         </td>
                         <td className='px-4 py-4 font-medium'>
                           {formatRemainingLifetimeCap(subscription)}
-                          <p className='mt-1 text-xs font-normal text-muted-foreground'>of {formatLifetimeCap(subscription.lifetimeCapGross)}</p>
+                          <p className='mt-1 text-xs font-normal text-muted-foreground'>
+                            of {formatLifetimeCap(subscription.lifetimeCapGross)}
+                          </p>
                         </td>
                         <td className='max-w-56 px-4 py-4'>
                           <p className='font-medium'>{quote.label}</p>

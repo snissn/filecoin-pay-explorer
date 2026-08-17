@@ -70,14 +70,12 @@ describe("Boss read presentation", () => {
   });
 
   it("never promotes unavailable assurance, dependency, or access authority into a verified claim", () => {
-    expect(BOSS_AUTHORITY_DISCLOSURES.map((item) => item.value)).toEqual([
-      "Not indexed",
-      "Not indexed",
-      "Not indexed",
-    ]);
-    expect(BOSS_AUTHORITY_DISCLOSURES.map((item) => item.detail).join(" ").toLowerCase()).not.toContain(
-      "verified service",
-    );
+    expect(BOSS_AUTHORITY_DISCLOSURES.map((item) => item.value)).toEqual(["Not indexed", "Not indexed", "Not indexed"]);
+    expect(
+      BOSS_AUTHORITY_DISCLOSURES.map((item) => item.detail)
+        .join(" ")
+        .toLowerCase(),
+    ).not.toContain("verified service");
   });
 
   it("reports bounded index health without hiding impossible metadata", () => {

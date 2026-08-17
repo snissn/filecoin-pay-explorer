@@ -10,8 +10,8 @@ import { AlertCircle, CircleQuestionMark } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useBlockNumber } from "wagmi";
+import { getChain } from "@/constants/chains";
 import { useBossGraphQLQuery } from "@/hooks/useBossGraphQLQuery";
-import useNetwork from "@/hooks/useNetwork";
 import {
   BOSS_AUTHORITY_DISCLOSURES,
   describeBossIndexHealth,
@@ -21,6 +21,7 @@ import {
   formatLifetimeCap,
   formatRemainingLifetimeCap,
 } from "@/services/boss/presentation";
+import type { Network } from "@/types";
 import { BossDetailField, BossSectionCard, BossStateBadge, BossStatusPanel } from "../BossServices/shared";
 
 function errorMessage(error: unknown): string {
@@ -32,11 +33,11 @@ function ExactValue({ value }: { value: string }) {
 }
 
 export default function BossService() {
-  const { id = "" } = useParams<{ id: string }>();
-  const { network } = useNetwork();
-  const { data: observedBlock } = useBlockNumber({ watch: true });
+  const { id = "", network } = useParams<{ id: string; network: Network }>();
+  const { data: observedBlock } = useBlockNumber({ chainId: getChain(network).id, watch: true });
 
   const subscriptionQuery = useBossGraphQLQuery<Subscription | null>({
+    networkOverride: network,
     queryKey: ["subscription", id],
     query: (client) => client.getSubscription(id),
     enabled: id.length > 0,
@@ -45,6 +46,7 @@ export default function BossService() {
   const subscription = subscriptionQuery.data ?? null;
 
   const resourceQuery = useBossGraphQLQuery<ResourceSubscription | null>({
+    networkOverride: network,
     queryKey: ["resource-for-subscription", subscription?.subscriptionId ?? "pending"],
     query: (client) =>
       subscription
@@ -54,6 +56,7 @@ export default function BossService() {
     refetchInterval: 30_000,
   });
   const claimsQuery = useBossGraphQLQuery<UsageClaim[]>({
+    networkOverride: network,
     queryKey: ["usage-claims", subscription?.subscriptionId ?? "pending"],
     query: (client) =>
       subscription ? client.getUsageClaims(subscription.subscriptionId, 50, 0) : Promise.resolve<UsageClaim[]>([]),
@@ -61,6 +64,7 @@ export default function BossService() {
     refetchInterval: 30_000,
   });
   const indexQuery = useBossGraphQLQuery({
+    networkOverride: network,
     queryKey: ["index-status"],
     query: (client) => client.getIndexStatus(),
     refetchInterval: 15_000,
@@ -131,7 +135,10 @@ export default function BossService() {
       >
         <div className='space-y-6'>
           <div>
-            <Link href={`/${network}/services`} className='text-sm font-semibold text-primary underline-offset-4 hover:underline'>
+            <Link
+              href={`/${network}/services`}
+              className='text-sm font-semibold text-primary underline-offset-4 hover:underline'
+            >
               ← All Boss services
             </Link>
           </div>
@@ -160,7 +167,10 @@ export default function BossService() {
             </dl>
           </BossSectionCard>
 
-          <BossSectionCard title='Economics' description='Amounts are exact token base units; token decimals are not assumed.'>
+          <BossSectionCard
+            title='Economics'
+            description='Amounts are exact token base units; token decimals are not assumed.'
+          >
             <dl className='grid gap-5 sm:grid-cols-2 lg:grid-cols-3'>
               <BossDetailField label='Payment token' value={<ExactValue value={subscription.token} />} />
               <BossDetailField label='Rate per epoch' value={formatBossInteger(subscription.ratePerEpoch)} />
@@ -219,15 +229,23 @@ export default function BossService() {
             </dl>
           </BossSectionCard>
 
-          <BossSectionCard title='Resource association' description='One exact subscription-to-resource relation, never a label heuristic.'>
+          <BossSectionCard
+            title='Resource association'
+            description='One exact subscription-to-resource relation, never a label heuristic.'
+          >
             {resourceQuery.isLoading && <LoadingStateCard message='Loading resource association...' />}
             {resourceQuery.isError && (
-              <div className='rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>
+              <div
+                className='rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100'
+                role='alert'
+              >
                 {errorMessage(resourceQuery.error)}
               </div>
             )}
             {!resourceQuery.isLoading && !resourceQuery.isError && !resource && (
-              <p className='text-sm text-muted-foreground'>No exact ResourceSubscription entity is indexed for this subscription.</p>
+              <p className='text-sm text-muted-foreground'>
+                No exact ResourceSubscription entity is indexed for this subscription.
+              </p>
             )}
             {!resourceQuery.isLoading && !resourceQuery.isError && resource && (
               <dl className='grid gap-5 sm:grid-cols-2 lg:grid-cols-3'>
@@ -241,7 +259,10 @@ export default function BossService() {
           <BossSectionCard title='Usage claims' description='Newest 50 indexed claims; no per-row query waterfall.'>
             {claimsQuery.isLoading && <LoadingStateCard message='Loading usage claims...' />}
             {claimsQuery.isError && (
-              <div className='rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>
+              <div
+                className='rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100'
+                role='alert'
+              >
                 {errorMessage(claimsQuery.error)}
               </div>
             )}

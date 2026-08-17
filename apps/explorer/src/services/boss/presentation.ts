@@ -73,6 +73,7 @@ export function getBossStateTone(state: Subscription["state"]): BossStatusTone {
     case "ENDED":
       return "neutral";
   }
+  return "neutral";
 }
 
 export function formatLifetimeCap(value: string | bigint): string {
@@ -83,7 +84,9 @@ export function formatLifetimeCap(value: string | bigint): string {
   return parsed === MAX_UINT256 ? "Unlimited" : parsed.toLocaleString("en-US");
 }
 
-export function formatRemainingLifetimeCap(subscription: Pick<Subscription, "lifetimeCapGross" | "totalChargedGross">): string {
+export function formatRemainingLifetimeCap(
+  subscription: Pick<Subscription, "lifetimeCapGross" | "totalChargedGross">,
+): string {
   const cap = parseBossInteger(subscription.lifetimeCapGross);
   const charged = parseBossInteger(subscription.totalChargedGross);
   if (cap === null || charged === null) {

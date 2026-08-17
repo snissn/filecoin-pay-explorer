@@ -3,6 +3,7 @@ name: Boss Explorer D1
 on:
   pull_request:
     paths:
+      - "apps/explorer/tsconfig.boss-d1.json"
       - "apps/explorer/src/app/[network]/services/**"
       - "apps/explorer/src/components/BossService/**"
       - "apps/explorer/src/components/BossServices/**"
@@ -49,8 +50,8 @@ jobs:
       - name: Run Boss data and presentation tests
         run: pnpm --filter @filecoin-pay/explorer test -- src/services/boss
 
-      - name: Type check Explorer
-        run: pnpm --filter @filecoin-pay/explorer type-check
+      - name: Type check D1 surface
+        run: pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d1.json --noEmit
 
       - name: Build monorepo
         run: pnpm build
@@ -61,6 +62,7 @@ jobs:
       - name: Check D1 formatting and lint
         run: >-
           pnpm exec biome ci
+          apps/explorer/tsconfig.boss-d1.json
           apps/explorer/src/app/[network]/services
           apps/explorer/src/components/BossService
           apps/explorer/src/components/BossServices

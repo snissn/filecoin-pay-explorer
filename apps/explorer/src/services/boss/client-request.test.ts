@@ -13,8 +13,8 @@ vi.mock("graphql-request", () => ({
 import { createBossGraphQLClient } from "./client";
 import { BossDataSourceError } from "./errors";
 
-const ADDRESS = (digit: string) => `0x${digit.repeat(40)}`;
-const HASH = (digit: string) => `0x${digit.repeat(64)}`;
+const ADDRESS = (digit: string): `0x${string}` => `0x${digit.repeat(40)}`;
+const HASH = (digit: string): `0x${string}` => `0x${digit.repeat(64)}`;
 const CHAIN_ID = "314159";
 const SUBSCRIPTION_ID = HASH("b");
 const RESOURCE_KEY = HASH("d");
