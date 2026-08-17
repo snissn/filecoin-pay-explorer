@@ -110,15 +110,7 @@ export function parseBossDeploymentManifest(
   const manifest = requireRecord(value, "manifest");
   requireExactKeys(
     manifest,
-    [
-      "schemaVersion",
-      "network",
-      "chainId",
-      "protocolCommit",
-      "accountCreationCodeHash",
-      "dependencies",
-      "contracts",
-    ],
+    ["schemaVersion", "network", "chainId", "protocolCommit", "accountCreationCodeHash", "dependencies", "contracts"],
     ["deploymentBlock"],
     "manifest",
   );
@@ -214,12 +206,7 @@ function parseEndpoint(endpoint: string | undefined, network: Network): string {
 
 function parseDeployment(value: unknown, label: string): BossContractDeployment {
   const deployment = requireRecord(value, label);
-  requireExactKeys(
-    deployment,
-    ["address", "runtimeCodeHash", "deploymentTxHash", "deploymentBlock"],
-    [],
-    label,
-  );
+  requireExactKeys(deployment, ["address", "runtimeCodeHash", "deploymentTxHash", "deploymentBlock"], [], label);
   return {
     address: requireAddress(deployment.address, `${label}.address`),
     runtimeCodeHash: requireHash(deployment.runtimeCodeHash, `${label}.runtimeCodeHash`),

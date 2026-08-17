@@ -69,10 +69,7 @@ export interface BossGraphQLClient {
   getRailAssociation(subscriptionId: string, railId: bigint): Promise<RailSubscription | null>;
 }
 
-export function createBossGraphQLClient(
-  network: Network,
-  environment?: BossPublicEnvironment,
-): BossGraphQLClient {
+export function createBossGraphQLClient(network: Network, environment?: BossPublicEnvironment): BossGraphQLClient {
   const config = getBossDataSourceConfig(network, environment);
   const client = new GraphQLClient(config.endpoint);
 
@@ -128,11 +125,7 @@ export function createBossGraphQLClient(
   };
 }
 
-export function assertBossIndexFresh(
-  indexedBlock: bigint,
-  observedChainBlock: bigint,
-  maximumLag: bigint = 20n,
-): void {
+export function assertBossIndexFresh(indexedBlock: bigint, observedChainBlock: bigint, maximumLag: bigint = 20n): void {
   if (indexedBlock < 0n || observedChainBlock < 0n || maximumLag < 0n) {
     throw new BossDataSourceError("INDEXING_ERROR", "Boss index block inputs must be non-negative");
   }

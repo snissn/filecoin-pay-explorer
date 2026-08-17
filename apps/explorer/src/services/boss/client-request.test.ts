@@ -61,10 +61,10 @@ describe("Boss GraphQL client", () => {
 
     const client = createBossGraphQLClient("calibration", environment());
     await expect(client.getRailAssociation(HASH("b"), 9_007_199_254_740_993n)).resolves.toBe(association);
-    expect(mocks.request).toHaveBeenCalledWith(
-      expect.any(String),
-      { subscriptionId: HASH("b"), railId: "9007199254740993" },
-    );
+    expect(mocks.request).toHaveBeenCalledWith(expect.any(String), {
+      subscriptionId: HASH("b"),
+      railId: "9007199254740993",
+    });
   });
 
   it("rejects an ambiguous association instead of selecting one", async () => {

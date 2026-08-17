@@ -1,4 +1,6 @@
-"""Filecoin Boss GraphQL client contract pinned to the A10 entity surface."""
+"""
+Filecoin Boss GraphQL client contract pinned to the A10 entity surface.
+"""
 scalar BigInt
 scalar Bytes
 

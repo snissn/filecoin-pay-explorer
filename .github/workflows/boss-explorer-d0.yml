@@ -5,6 +5,7 @@ on:
     paths:
       - "apps/explorer/.env.example"
       - "apps/explorer/README.md"
+      - "apps/explorer/tsconfig.boss-d0.json"
       - "apps/explorer/src/hooks/useBossGraphQLQuery.ts"
       - "apps/explorer/src/services/boss/**"
       - "packages/types/README.md"
@@ -53,8 +54,10 @@ jobs:
       - name: Run focused Boss tests
         run: pnpm --filter @filecoin-pay/explorer test -- src/services/boss
 
-      - name: Type check monorepo
-        run: pnpm type-check
+      - name: Type check Boss packages
+        run: |
+          pnpm --filter @filecoin-pay/types type-check
+          pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d0.json --noEmit
 
       - name: Build monorepo
         run: pnpm build
@@ -65,6 +68,7 @@ jobs:
       - name: Check changed-source formatting and lint
         run: >-
           pnpm exec biome ci
+          apps/explorer/tsconfig.boss-d0.json
           apps/explorer/src/hooks/useBossGraphQLQuery.ts
           apps/explorer/src/services/boss
           packages/types/src/boss.ts

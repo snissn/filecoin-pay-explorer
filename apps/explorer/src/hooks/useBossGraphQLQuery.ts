@@ -12,9 +12,7 @@ export interface UseBossGraphQLQueryOptions<TData, TResult = TData> {
   refetchInterval?: number | false;
 }
 
-export function useBossGraphQLQuery<TData, TResult = TData>(
-  options: UseBossGraphQLQueryOptions<TData, TResult>,
-) {
+export function useBossGraphQLQuery<TData, TResult = TData>(options: UseBossGraphQLQueryOptions<TData, TResult>) {
   const { network: contextNetwork } = useNetwork();
   const network = options.networkOverride ?? contextNetwork;
   return useQuery({

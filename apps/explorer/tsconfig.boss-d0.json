@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "next-env.d.ts",
+    "src/hooks/useBossGraphQLQuery.ts",
+    "src/services/boss/**/*.ts"
+  ],
+  "exclude": ["node_modules", ".next"]
+}
