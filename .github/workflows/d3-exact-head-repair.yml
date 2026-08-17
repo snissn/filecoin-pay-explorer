@@ -1,0 +1,161 @@
+name: Qualify exact-head D3 repair
+
+on:
+  push:
+    branches:
+      - gpt56/issue-17-boss-console-release
+    paths:
+      - ".github/workflows/d3-exact-head-repair.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: d3-exact-head-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact trigger
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Verify isolated trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "d3e436242202eccbeacdb0568da59439667b6d70"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/d3-exact-head-repair.yml"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply bounded D3 type repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+
+          page = Path("apps/explorer/src/app/[network]/services/[id]/page.tsx")
+          text = page.read_text()
+          old = 'import { ConsoleProviders } from "@/components/UserConsole/ConsoleProviders";'
+          new = 'import ConsoleProviders from "@/components/UserConsole/ConsoleProviders";'
+          if text.count(old) != 1:
+              raise SystemExit("service page import no longer matches reviewed head")
+          page.write_text(text.replace(old, new, 1))
+
+          console = Path("apps/explorer/src/components/BossLifecycleConsole/index.tsx")
+          text = console.read_text()
+          old = '  const { synapse, isLoading: synapseLoading, error: synapseError } = useSynapse();'
+          new = '  const { synapse } = useSynapse();'
+          if text.count(old) != 1:
+              raise SystemExit("Synapse context use no longer matches reviewed head")
+          text = text.replace(old, new, 1)
+          old = '  const sdkReady = services.status === "available" && !synapseLoading && synapseError === null;'
+          new = '  const sdkReady = services.status === "available";'
+          if text.count(old) != 1:
+              raise SystemExit("SDK readiness expression no longer matches reviewed head")
+          text = text.replace(old, new, 1)
+          old = '''      {synapseError && (
+        <div className='mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>
+          Synapse initialization failed: {synapseError.message}
+        </div>
+      )}
+
+'''
+          if text.count(old) != 1:
+              raise SystemExit("unsupported Synapse error panel no longer matches reviewed head")
+          console.write_text(text.replace(old, "", 1))
+          PY
+
+      - name: Apply exact repository formatter
+        run: >-
+          pnpm exec biome check --write
+          apps/explorer/tsconfig.boss-d3.json
+          apps/explorer/src/app/[network]/services/[id]/page.tsx
+          apps/explorer/src/components/BossLifecycleConsole
+          apps/explorer/src/components/BossService
+          apps/explorer/src/services/boss/lifecycle.test.ts
+          apps/explorer/src/services/boss/lifecycle.ts
+
+      - name: Generate and build distinct Boss and Pay types
+        run: pnpm --filter @filecoin-pay/types build
+
+      - name: Run Boss lifecycle and inherited regressions
+        run: pnpm --filter @filecoin-pay/explorer test -- src/services/boss
+
+      - name: Type check D3 surface
+        run: pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d3.json --noEmit
+
+      - name: Build monorepo
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_SUBGRAPH_URL_MAINNET: https://placeholder.invalid/mainnet
+          NEXT_PUBLIC_SUBGRAPH_URL_CALIBRATION: https://placeholder.invalid/calibration
+
+      - name: Verify D3 formatting and lint
+        run: >-
+          pnpm exec biome ci
+          apps/explorer/tsconfig.boss-d3.json
+          apps/explorer/src/app/[network]/services/[id]/page.tsx
+          apps/explorer/src/components/BossLifecycleConsole
+          apps/explorer/src/components/BossService
+          apps/explorer/src/services/boss/lifecycle.test.ts
+          apps/explorer/src/services/boss/lifecycle.ts
+
+      - name: Publish qualified source repair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          allowed=$(cat <<'EOF'
+          apps/explorer/src/app/[network]/services/[id]/page.tsx
+          apps/explorer/src/components/BossLifecycleConsole/index.tsx
+          apps/explorer/src/components/BossService/index.tsx
+          apps/explorer/src/services/boss/lifecycle.test.ts
+          apps/explorer/src/services/boss/lifecycle.ts
+          apps/explorer/tsconfig.boss-d3.json
+          EOF
+          )
+          actual=$(git diff --name-only | sort)
+          test -n "$actual"
+          while IFS= read -r path; do
+            printf '%s\n' "$allowed" | sed 's/^          //' | grep -Fx -- "$path" >/dev/null
+          done <<< "$actual"
+          printf '%s\n' "$actual" | grep -Fx 'apps/explorer/src/app/[network]/services/[id]/page.tsx' >/dev/null
+          printf '%s\n' "$actual" | grep -Fx 'apps/explorer/src/components/BossLifecycleConsole/index.tsx' >/dev/null
+
+          git add \
+            'apps/explorer/src/app/[network]/services/[id]/page.tsx' \
+            apps/explorer/src/components/BossLifecycleConsole/index.tsx \
+            apps/explorer/src/components/BossService/index.tsx \
+            apps/explorer/src/services/boss/lifecycle.test.ts \
+            apps/explorer/src/services/boss/lifecycle.ts \
+            apps/explorer/tsconfig.boss-d3.json
+          git commit -m "fix(explorer): qualify explicit Boss lifecycle console"
+
+          auth_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          remote_head=$(git ls-remote "$auth_url" refs/heads/gpt56/issue-17-boss-console-release | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          git push "$auth_url" "HEAD:refs/heads/gpt56/issue-17-boss-console-release"
