@@ -14,10 +14,12 @@ import {
   GET_BOSS_ACCOUNT,
   GET_BOSS_INDEX_STATUS,
   GET_BOSS_RAIL_ASSOCIATION,
+  GET_BOSS_RAIL_ASSOCIATION_BY_RAIL,
   GET_BOSS_RESOURCE,
   GET_BOSS_RESOURCE_FOR_SUBSCRIPTION,
   GET_BOSS_SERVICE,
   GET_BOSS_SUBSCRIPTION,
+  GET_BOSS_SUBSCRIPTION_FOR_ASSOCIATION,
   GET_BOSS_USAGE_CLAIMS,
   LIST_BOSS_SUBSCRIPTIONS,
 } from "./queries";
@@ -78,9 +80,11 @@ export interface BossGraphQLClient {
   getResource(id: string): Promise<ResourceSubscription | null>;
   getResourceForSubscription(identity: BossResourceIdentity): Promise<ResourceSubscription | null>;
   getSubscription(id: string): Promise<Subscription | null>;
+  getSubscriptionForAssociation(association: RailSubscription): Promise<Subscription | null>;
   listSubscriptions(first?: number, skip?: number): Promise<Subscription[]>;
   getUsageClaims(subscriptionId: string, first?: number, skip?: number): Promise<UsageClaim[]>;
   getRailAssociation(subscriptionId: string, railId: bigint): Promise<RailSubscription | null>;
+  getRailAssociationByRailId(railId: bigint): Promise<RailSubscription | null>;
 }
 
 export function createBossGraphQLClient(network: Network, environment?: BossPublicEnvironment): BossGraphQLClient {
@@ -196,6 +200,34 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       assertSubscriptionAuthority(config, subscription);
       return subscription;
     },
+    async getSubscriptionForAssociation(association) {
+      const response = await client.request<BossSubscriptionsResponse>(GET_BOSS_SUBSCRIPTION_FOR_ASSOCIATION, {
+        subscriptionId: association.subscriptionId,
+      });
+      if (response.subscriptions.length > 1) {
+        throw new BossDataSourceError(
+          "INDEXING_ERROR",
+          `Boss index returned multiple subscriptions for protocol subscription ${association.subscriptionId}`,
+        );
+      }
+
+      const subscription = response.subscriptions[0];
+      if (!subscription) {
+        return null;
+      }
+
+      assertSubscriptionAuthority(config, subscription);
+      assertIndexedIdentity(
+        subscription.subscriptionId,
+        association.subscriptionId,
+        "Boss subscription protocol id",
+      );
+      assertIndexedIdentity(subscription.railId, association.railId, "Boss subscription rail id");
+      assertIndexedIdentity(subscription.bossAccount, association.bossAccount, "Boss subscription account");
+      assertIndexedIdentity(subscription.beneficiary, association.payee, "Boss subscription beneficiary");
+      assertIndexedIdentity(subscription.token, association.token, "Boss subscription token");
+      return subscription;
+    },
     async listSubscriptions(first = 100, skip = 0) {
       assertPagination(first, skip, "Boss subscriptions");
       const response = await client.request<BossSubscriptionsResponse>(LIST_BOSS_SUBSCRIPTIONS, { first, skip });
@@ -224,34 +256,57 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
         subscriptionId,
         railId: railId.toString(),
       });
-      if (response.railSubscriptions.length > 1) {
-        throw new BossDataSourceError(
-          "INDEXING_ERROR",
-          `Boss index returned multiple rail associations for subscription ${subscriptionId} and rail ${railId}`,
-        );
-      }
-
-      const association = response.railSubscriptions[0];
-      if (!association) {
-        return null;
-      }
-
-      assertIndexedChain(config, association.chainId, "Boss rail association");
-      assertIndexedIdentity(association.subscriptionId, subscriptionId, "Boss rail association subscription id");
-      assertIndexedIdentity(association.railId, railId.toString(), "Boss rail association rail id");
-      assertIndexedAuthority(
-        association.filecoinPay,
-        config.manifest.dependencies.filecoinPay,
-        "Boss rail association Filecoin Pay authority",
-      );
-      assertIndexedAuthority(
-        association.token,
-        config.manifest.dependencies.token,
-        "Boss rail association payment token",
-      );
-      return association;
+      return selectRailAssociation(config, response.railSubscriptions, {
+        subscriptionId,
+        railId: railId.toString(),
+      });
+    },
+    async getRailAssociationByRailId(railId) {
+      const response = await client.request<BossRailAssociationResponse>(GET_BOSS_RAIL_ASSOCIATION_BY_RAIL, {
+        railId: railId.toString(),
+      });
+      return selectRailAssociation(config, response.railSubscriptions, { railId: railId.toString() });
     },
   };
+}
+
+function selectRailAssociation(
+  config: BossDataSourceConfig,
+  associations: RailSubscription[],
+  expected: { subscriptionId?: string; railId: string },
+): RailSubscription | null {
+  if (associations.length > 1) {
+    throw new BossDataSourceError(
+      "INDEXING_ERROR",
+      `Boss index returned multiple rail associations for rail ${expected.railId}`,
+    );
+  }
+
+  const association = associations[0];
+  if (!association) {
+    return null;
+  }
+
+  assertIndexedChain(config, association.chainId, "Boss rail association");
+  assertIndexedIdentity(association.railId, expected.railId, "Boss rail association rail id");
+  if (expected.subscriptionId !== undefined) {
+    assertIndexedIdentity(
+      association.subscriptionId,
+      expected.subscriptionId,
+      "Boss rail association subscription id",
+    );
+  }
+  assertIndexedAuthority(
+    association.filecoinPay,
+    config.manifest.dependencies.filecoinPay,
+    "Boss rail association Filecoin Pay authority",
+  );
+  assertIndexedAuthority(
+    association.token,
+    config.manifest.dependencies.token,
+    "Boss rail association payment token",
+  );
+  return association;
 }
 
 function assertSubscriptionAuthority(config: BossDataSourceConfig, subscription: Subscription): void {

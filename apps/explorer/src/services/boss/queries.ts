@@ -112,6 +112,40 @@ export const GET_BOSS_SUBSCRIPTION = gql`
   }
 `;
 
+export const GET_BOSS_SUBSCRIPTION_FOR_ASSOCIATION = gql`
+  query GetBossSubscriptionForAssociation($subscriptionId: Bytes!) {
+    subscriptions(where: { subscriptionId: $subscriptionId }, first: 2) {
+      __typename
+      id
+      chainId
+      bossAccount
+      subscriptionId
+      railId
+      resourceKey
+      provider
+      beneficiary
+      token
+      resourceAdapter
+      pricingAdapter
+      state
+      ratePerEpoch
+      fixedBudget
+      lifetimeCapGross
+      totalRawGross
+      totalChargedGross
+      claimCount
+      quoteEpoch
+      quoteValidThroughEpoch
+      resourceStatusHash
+      activatedEpoch
+      pausedEpoch
+      terminationRequestedEpoch
+      payEndEpoch
+      finalSettledEpoch
+    }
+  }
+`;
+
 export const LIST_BOSS_SUBSCRIPTIONS = gql`
   query ListBossSubscriptions($first: Int!, $skip: Int!) {
     subscriptions(first: $first, skip: $skip, orderBy: activatedEpoch, orderDirection: desc) {
@@ -174,6 +208,28 @@ export const GET_BOSS_USAGE_CLAIMS = gql`
 export const GET_BOSS_RAIL_ASSOCIATION = gql`
   query GetBossRailAssociation($subscriptionId: Bytes!, $railId: BigInt!) {
     railSubscriptions(where: { subscriptionId: $subscriptionId, railId: $railId }, first: 2) {
+      __typename
+      id
+      chainId
+      filecoinPay
+      bossAccount
+      subscriptionId
+      railId
+      payer
+      payee
+      operator
+      validator
+      token
+      active
+      transactionHash
+      blockNumber
+    }
+  }
+`;
+
+export const GET_BOSS_RAIL_ASSOCIATION_BY_RAIL = gql`
+  query GetBossRailAssociationByRail($railId: BigInt!) {
+    railSubscriptions(where: { railId: $railId }, first: 2) {
       __typename
       id
       chainId
