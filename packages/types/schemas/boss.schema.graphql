@@ -1,0 +1,288 @@
+"""
+Filecoin Boss GraphQL client contract pinned to the A10 entity surface.
+"""
+scalar BigInt
+scalar Bytes
+
+enum OrderDirection {
+  asc
+  desc
+}
+
+enum SubscriptionState {
+  ACCEPTED
+  ACTIVE
+  PAUSED
+  TERMINATING
+  ENDED
+  EXHAUSTED
+}
+
+type BossAccount {
+  id: ID!
+  chainId: BigInt!
+  factory: Bytes!
+  address: Bytes!
+  owner: Bytes!
+  filecoinPay: Bytes!
+  serviceRegistry: Bytes!
+  adapterRegistry: Bytes!
+  accountVersion: BigInt!
+  createdBlock: BigInt!
+  createdTransaction: Bytes!
+}
+
+type BossService {
+  id: ID!
+  chainId: BigInt!
+  serviceRegistry: Bytes!
+  provider: Bytes!
+  serviceId: Bytes!
+  serviceType: Bytes!
+  version: BigInt!
+  metadataURI: String!
+  published: Boolean!
+}
+
+type ResourceSubscription {
+  id: ID!
+  chainId: BigInt!
+  bossAccount: Bytes!
+  resourceKey: Bytes!
+  subscriptionId: Bytes!
+  active: Boolean!
+}
+
+type Subscription {
+  id: ID!
+  chainId: BigInt!
+  bossAccount: Bytes!
+  subscriptionId: Bytes!
+  railId: BigInt!
+  resourceKey: Bytes!
+  provider: Bytes!
+  beneficiary: Bytes!
+  token: Bytes!
+  resourceAdapter: Bytes!
+  pricingAdapter: Bytes!
+  state: SubscriptionState!
+  ratePerEpoch: BigInt!
+  fixedBudget: BigInt!
+  lifetimeCapGross: BigInt!
+  totalRawGross: BigInt!
+  totalChargedGross: BigInt!
+  claimCount: BigInt!
+  quoteEpoch: BigInt
+  quoteValidThroughEpoch: BigInt
+  resourceStatusHash: Bytes
+  activatedEpoch: BigInt
+  pausedEpoch: BigInt
+  terminationRequestedEpoch: BigInt
+  payEndEpoch: BigInt
+  finalSettledEpoch: BigInt
+}
+
+type UsageClaim {
+  id: ID!
+  chainId: BigInt!
+  bossAccount: Bytes!
+  subscriptionId: Bytes!
+  claimId: Bytes!
+  observedUsage: BigInt!
+  rawGross: BigInt!
+  chargedGross: BigInt!
+  evidenceHash: Bytes!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+}
+
+type RailSubscription {
+  id: ID!
+  chainId: BigInt!
+  filecoinPay: Bytes!
+  bossAccount: Bytes!
+  subscriptionId: Bytes!
+  railId: BigInt!
+  payer: Bytes!
+  payee: Bytes!
+  operator: Bytes!
+  validator: Bytes!
+  token: Bytes!
+  active: Boolean!
+  transactionHash: Bytes!
+  blockNumber: BigInt!
+}
+
+type _Block_ {
+  hash: Bytes
+  number: Int!
+  timestamp: BigInt
+}
+
+type _Meta_ {
+  block: _Block_!
+  deployment: String!
+  hasIndexingErrors: Boolean!
+}
+
+input Block_height {
+  hash: Bytes
+  number: Int
+  number_gte: Int
+}
+
+input BossAccount_filter {
+  id: ID
+  address: Bytes
+  owner: Bytes
+}
+
+input BossService_filter {
+  id: ID
+  provider: Bytes
+  serviceId: Bytes
+  serviceType: Bytes
+  published: Boolean
+}
+
+input ResourceSubscription_filter {
+  id: ID
+  bossAccount: Bytes
+  resourceKey: Bytes
+  subscriptionId: Bytes
+  active: Boolean
+}
+
+input Subscription_filter {
+  id: ID
+  bossAccount: Bytes
+  subscriptionId: Bytes
+  railId: BigInt
+  resourceKey: Bytes
+  provider: Bytes
+  state: SubscriptionState
+}
+
+input UsageClaim_filter {
+  id: ID
+  bossAccount: Bytes
+  subscriptionId: Bytes
+  claimId: Bytes
+}
+
+input RailSubscription_filter {
+  id: ID
+  chainId: BigInt
+  filecoinPay: Bytes
+  bossAccount: Bytes
+  subscriptionId: Bytes
+  railId: BigInt
+  active: Boolean
+}
+
+enum BossAccount_orderBy {
+  id
+  address
+  owner
+  createdBlock
+}
+
+enum BossService_orderBy {
+  id
+  provider
+  serviceId
+  version
+}
+
+enum ResourceSubscription_orderBy {
+  id
+  resourceKey
+  subscriptionId
+}
+
+enum Subscription_orderBy {
+  id
+  subscriptionId
+  railId
+  state
+  activatedEpoch
+  finalSettledEpoch
+}
+
+enum UsageClaim_orderBy {
+  id
+  subscriptionId
+  claimId
+  blockNumber
+}
+
+enum RailSubscription_orderBy {
+  id
+  subscriptionId
+  railId
+  blockNumber
+}
+
+type Query {
+  _meta(block: Block_height): _Meta_
+
+  bossAccount(id: ID!, block: Block_height): BossAccount
+  bossAccounts(
+    first: Int = 100
+    skip: Int = 0
+    where: BossAccount_filter
+    orderBy: BossAccount_orderBy
+    orderDirection: OrderDirection
+    block: Block_height
+  ): [BossAccount!]!
+
+  bossService(id: ID!, block: Block_height): BossService
+  bossServices(
+    first: Int = 100
+    skip: Int = 0
+    where: BossService_filter
+    orderBy: BossService_orderBy
+    orderDirection: OrderDirection
+    block: Block_height
+  ): [BossService!]!
+
+  resourceSubscription(id: ID!, block: Block_height): ResourceSubscription
+  resourceSubscriptions(
+    first: Int = 100
+    skip: Int = 0
+    where: ResourceSubscription_filter
+    orderBy: ResourceSubscription_orderBy
+    orderDirection: OrderDirection
+    block: Block_height
+  ): [ResourceSubscription!]!
+
+  subscription(id: ID!, block: Block_height): Subscription
+  subscriptions(
+    first: Int = 100
+    skip: Int = 0
+    where: Subscription_filter
+    orderBy: Subscription_orderBy
+    orderDirection: OrderDirection
+    block: Block_height
+  ): [Subscription!]!
+
+  usageClaim(id: ID!, block: Block_height): UsageClaim
+  usageClaims(
+    first: Int = 100
+    skip: Int = 0
+    where: UsageClaim_filter
+    orderBy: UsageClaim_orderBy
+    orderDirection: OrderDirection
+    block: Block_height
+  ): [UsageClaim!]!
+
+  railSubscription(id: ID!, block: Block_height): RailSubscription
+  railSubscriptions(
+    first: Int = 100
+    skip: Int = 0
+    where: RailSubscription_filter
+    orderBy: RailSubscription_orderBy
+    orderDirection: OrderDirection
+    block: Block_height
+  ): [RailSubscription!]!
+}

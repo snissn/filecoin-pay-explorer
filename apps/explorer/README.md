@@ -76,3 +76,9 @@ This app depends on the following workspace packages:
 - `@filecoin-pay/types` - Shared TypeScript types
 - `@filecoin-pay/ui` - Shared UI components and theming
 - `@filecoin-pay/configs` - Shared configurations
+
+## Filecoin Boss data source
+
+Boss data is configured independently from the existing Filecoin Pay subgraph. Set both the network-specific Boss GraphQL endpoint and the complete receipt-verified deployment manifest JSON shown in `.env.example`. Missing, insecure, wrong-chain, zero-address, or schema-incompatible configuration fails closed.
+
+Do not publish provisional Boss addresses or treat deterministic fixtures as public-network evidence.

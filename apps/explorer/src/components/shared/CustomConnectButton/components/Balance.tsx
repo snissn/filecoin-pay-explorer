@@ -1,0 +1,131 @@
+"use client";
+import { Button } from "@filecoin-pay/ui/components/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@filecoin-pay/ui/components/dropdown-menu";
+import { ArrowUpRightIcon, Check, Copy, LogOut, Wallet } from "lucide-react";
+import { useState } from "react";
+import { type Address, erc20Abi, formatEther } from "viem";
+import { useAccount, useBalance, useDisconnect, useReadContract, useWalletClient } from "wagmi";
+import FilecoinLogo from "@/assests/FilecoinLogo";
+import USDFCLogo from "@/assests/USDFCLogo";
+import useSynapse from "@/hooks/useSynapse";
+import { formatAddress } from "@/utils/formatter";
+
+const Balance = () => {
+  const { constants } = useSynapse();
+  const { address } = useAccount();
+  const { disconnect } = useDisconnect();
+  const { data: walletClient } = useWalletClient();
+  const [copied, setCopied] = useState(false);
+  const { data: tFilBalance, isLoading: isLoadingtFilBalance } = useBalance({
+    address,
+    query: { enabled: !!address },
+  });
+  const { data: usdfcBalance, isLoading: isLoadingUSDFCBalance } = useReadContract({
+    address: constants.contracts.usdfc,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [address as Address],
+    query: { enabled: !!address },
+  });
+
+  const usdfcBalanceFormatted = usdfcBalance ? Number(formatEther(usdfcBalance)).toFixed(2) : "0";
+  const tFilBalanceFormatted = tFilBalance ? Number(formatEther(tFilBalance.value)).toFixed(2) : "0";
+  const isLoading = isLoadingtFilBalance || isLoadingUSDFCBalance;
+
+  const copyToClipboard = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (address) {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const addUsdfcToken = async () => {
+    if (!walletClient) return;
+    try {
+      await walletClient.watchAsset({
+        type: "ERC20",
+        options: {
+          address: constants.contracts.usdfc,
+          symbol: "USDFC",
+          decimals: 18,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to add token:", error);
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant='outline' className='h-full w-full'>
+          <div className='flex items-center gap-3 w-full'>
+            <Wallet color='var(--color-zinc-500)' className='size-4' />
+            {isLoading ? (
+              "Loading..."
+            ) : (
+              <div className='flex items-center gap-3 text-base'>
+                <span className='flex items-center gap-1.5'>
+                  {tFilBalanceFormatted} <FilecoinLogo className='size-4' />
+                </span>
+                <span className='flex items-center gap-1.5'>
+                  {usdfcBalanceFormatted}
+                  <USDFCLogo className='size-4' />
+                </span>
+              </div>
+            )}
+          </div>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className='w-64' align='start'>
+        <DropdownMenuLabel className='text-zinc-600 text-sm py-2'>Wallet</DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={(e) => e.preventDefault()}
+          onClick={copyToClipboard}
+          className='cursor-pointer py-2'
+        >
+          <div className='flex items-center w-full gap-2'>
+            <div className='flex items-center gap-2'>
+              <Wallet className='size-4' />
+              <span className='text-base text-zinc-950'>{address && formatAddress(address)}</span>
+            </div>
+            {copied ? <Check className='text-green-500 size-4' /> : <Copy className='size-4' />}
+          </div>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => disconnect()} className='cursor-pointer py-2'>
+          <LogOut className='size-4' />
+          <span className='text-base text-zinc-950'>Disconnect</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className='text-zinc-600 text-sm py-2'>Tools</DropdownMenuLabel>
+        <DropdownMenuItem onClick={addUsdfcToken} className='cursor-pointer'>
+          <span className='text-base text-zinc-950'>Add USDFC Token</span>
+        </DropdownMenuItem>
+        {constants.faucets?.map((faucet) => (
+          <DropdownMenuItem asChild key={faucet.name} className='py-2'>
+            <a
+              href={faucet.url}
+              target='_blank'
+              rel='noopener noreferrer'
+              className='flex items-center w-full gap-2 cursor-pointer'
+            >
+              <span className='text-base text-zinc-950'>{faucet.name}</span>
+              <ArrowUpRightIcon color='var(--color-zinc-400)' size={16} />
+            </a>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
+export default Balance;
