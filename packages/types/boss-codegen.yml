@@ -1,0 +1,14 @@
+schema:
+  - "./schemas/boss.schema.graphql"
+generates:
+  ./src/generated/boss-graphql.ts:
+    plugins:
+      - typescript
+    config:
+      skipTypename: false
+      enumsAsTypes: true
+      futureProofEnums: true
+      nonOptionalTypename: true
+      scalars:
+        BigInt: string
+        Bytes: ../index.js#Bytes

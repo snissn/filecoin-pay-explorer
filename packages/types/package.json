@@ -10,11 +10,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./boss": {
+      "types": "./dist/boss.d.ts",
+      "default": "./dist/boss.js"
     }
   },
   "files": ["dist", "src"],
   "scripts": {
-    "generate": "graphql-codegen --config codegen.yml",
+    "generate": "graphql-codegen --config codegen.yml && graphql-codegen --config boss-codegen.yml",
     "build": "pnpm generate && tsc",
     "clean": "rm -rf dist src/generated",
     "lint": "biome check --write",
