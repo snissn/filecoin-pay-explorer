@@ -1,0 +1,70 @@
+name: Boss Explorer D2
+
+on:
+  pull_request:
+    paths:
+      - "apps/explorer/tsconfig.boss-d2.json"
+      - "apps/explorer/src/components/BossPayAssociation/**"
+      - "apps/explorer/src/components/BossService/**"
+      - "apps/explorer/src/components/Rail/index.tsx"
+      - "apps/explorer/src/hooks/useBossPayRailAssociation.ts"
+      - "apps/explorer/src/services/boss/**"
+      - ".github/workflows/boss-explorer-d2.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    name: D2 exact association proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate and build distinct Boss and Pay types
+        run: pnpm --filter @filecoin-pay/types build
+
+      - name: Run Boss association regressions
+        run: pnpm --filter @filecoin-pay/explorer test -- src/services/boss
+
+      - name: Type check D2 surface
+        run: pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d2.json --noEmit
+
+      - name: Build monorepo
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_SUBGRAPH_URL_MAINNET: https://placeholder.invalid/mainnet
+          NEXT_PUBLIC_SUBGRAPH_URL_CALIBRATION: https://placeholder.invalid/calibration
+
+      - name: Check D2 formatting and lint
+        run: >-
+          pnpm exec biome ci
+          apps/explorer/tsconfig.boss-d2.json
+          apps/explorer/src/components/BossPayAssociation
+          apps/explorer/src/components/BossService
+          apps/explorer/src/components/Rail/index.tsx
+          apps/explorer/src/hooks/useBossPayRailAssociation.ts
+          apps/explorer/src/services/boss

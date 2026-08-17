@@ -6,7 +6,9 @@ import { LoadingStateCard } from "@filecoin-foundation/ui-filecoin/LoadingStateC
 import { PageSection } from "@filecoin-foundation/ui-filecoin/PageSection";
 import { AlertCircle, CircleQuestionMark } from "lucide-react";
 import { useParams } from "next/navigation";
+import BossPayAssociation from "@/components/BossPayAssociation";
 import { useRailDetails } from "@/hooks/useRailDetails";
+import type { Network } from "@/types";
 import { RailOneTimePayments } from "./components/RailOneTimePayments";
 import { RailRateChanges } from "./components/RailRateChanges";
 import { RailSettlements } from "./components/RailSettlements";
@@ -44,7 +46,7 @@ const NotFoundState: React.FC<NotFoundStateProps> = ({ railId }) => (
 );
 
 export default function Rail() {
-  const { id: railId } = useParams<{ id: string }>();
+  const { id: railId, network } = useParams<{ id: string; network: Network }>();
 
   const { data, error, isLoading, isError, refetch } = useRailDetails(railId);
 
@@ -53,6 +55,7 @@ export default function Rail() {
       {(!isLoading && !isError && data && (
         <>
           <Stats rail={data} />
+          <BossPayAssociation network={network} railId={railId} standalone />
           <RailRateChanges rail={data} />
           <RailSettlements rail={data} />
           <RailOneTimePayments rail={data} />
