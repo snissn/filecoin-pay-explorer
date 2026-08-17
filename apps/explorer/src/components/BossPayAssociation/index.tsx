@@ -41,14 +41,20 @@ export default function BossPayAssociation({
       {state.status === "loading" && <p className='mt-4 text-sm text-muted-foreground'>{state.message}</p>}
 
       {state.status === "pending-index" && (
-        <div className='mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100' role='status'>
+        <div
+          className='mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100'
+          role='status'
+        >
           <p className='font-semibold'>Waiting for {state.source === "boss" ? "Boss" : "Filecoin Pay"} indexing</p>
           <p className='mt-1'>{state.message}</p>
         </div>
       )}
 
       {state.status === "unverifiable" && (
-        <div className='mt-4 rounded-lg border border-slate-300 bg-slate-50 p-4 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-100' role='alert'>
+        <div
+          className='mt-4 rounded-lg border border-slate-300 bg-slate-50 p-4 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-100'
+          role='alert'
+        >
           <p className='font-semibold'>Association cannot be verified</p>
           <ul className='mt-2 list-disc space-y-1 pl-5'>
             {state.reasons.map((reason) => (
@@ -62,7 +68,10 @@ export default function BossPayAssociation({
       )}
 
       {state.status === "mismatched" && (
-        <div className='mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>
+        <div
+          className='mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100'
+          role='alert'
+        >
           <p className='font-semibold'>Indexed sources disagree; this rail is not labeled as Boss</p>
           <ul className='mt-3 space-y-3'>
             {state.mismatches.map((mismatch, index) => (
@@ -82,9 +91,13 @@ export default function BossPayAssociation({
 
       {state.status === "matched" && (
         <div className='mt-4 space-y-4'>
-          <p className='rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100' role='status'>
-            Chain, Filecoin Pay authority, Boss account/operator, subscription ID, rail ID, payer, payee, token,
-            and validator all match. The association is {state.association.active ? "currently active" : "historical/inactive"}.
+          <p
+            className='rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100'
+            role='status'
+          >
+            Chain, Filecoin Pay authority, Boss account/operator, subscription ID, rail ID, payer, payee, token, and
+            validator all match. The association is{" "}
+            {state.association.active ? "currently active" : "historical/inactive"}.
           </p>
           <dl className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
             <AssociationField label='Subscription ID' value={state.association.subscriptionId} />

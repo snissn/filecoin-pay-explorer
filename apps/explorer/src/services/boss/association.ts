@@ -63,9 +63,7 @@ export interface VerifyBossPayRailAssociationInput {
   payRail: PayRailAssociationFacts;
 }
 
-export function verifyBossPayRailAssociation(
-  input: VerifyBossPayRailAssociationInput,
-): BossPayAssociationResult {
+export function verifyBossPayRailAssociation(input: VerifyBossPayRailAssociationInput): BossPayAssociationResult {
   const reasons: string[] = [];
   const routeChainId = normalizeDecimal(input.routeChainId.toString(), "route chain ID", reasons);
   const manifestChainId = normalizeDecimal(input.manifest.chainId.toString(), "manifest chain ID", reasons);
@@ -129,22 +127,8 @@ export function verifyBossPayRailAssociation(
 
   const mismatches: BossPayAssociationMismatch[] = [];
   compare("chainId", "route chain ID", routeChainId, "manifest chain ID", manifestChainId, mismatches);
-  compare(
-    "chainId",
-    "route chain ID",
-    routeChainId,
-    "Boss association chain ID",
-    associationChainId,
-    mismatches,
-  );
-  compare(
-    "chainId",
-    "route chain ID",
-    routeChainId,
-    "Boss subscription chain ID",
-    subscriptionChainId,
-    mismatches,
-  );
+  compare("chainId", "route chain ID", routeChainId, "Boss association chain ID", associationChainId, mismatches);
+  compare("chainId", "route chain ID", routeChainId, "Boss subscription chain ID", subscriptionChainId, mismatches);
   compare(
     "filecoinPay",
     "trusted Filecoin Pay",
@@ -212,7 +196,14 @@ export function verifyBossPayRailAssociation(
     payOperator,
     mismatches,
   );
-  compare("token", "manifest payment token", manifestToken, "Boss association payment token", associationToken, mismatches);
+  compare(
+    "token",
+    "manifest payment token",
+    manifestToken,
+    "Boss association payment token",
+    associationToken,
+    mismatches,
+  );
   compare(
     "token",
     "Boss association payment token",
@@ -221,7 +212,14 @@ export function verifyBossPayRailAssociation(
     subscriptionToken,
     mismatches,
   );
-  compare("token", "Boss association payment token", associationToken, "Filecoin Pay payment token", payToken, mismatches);
+  compare(
+    "token",
+    "Boss association payment token",
+    associationToken,
+    "Filecoin Pay payment token",
+    payToken,
+    mismatches,
+  );
   compare(
     "validator",
     "Boss association validator",

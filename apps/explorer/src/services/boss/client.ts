@@ -217,11 +217,7 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       }
 
       assertSubscriptionAuthority(config, subscription);
-      assertIndexedIdentity(
-        subscription.subscriptionId,
-        association.subscriptionId,
-        "Boss subscription protocol id",
-      );
+      assertIndexedIdentity(subscription.subscriptionId, association.subscriptionId, "Boss subscription protocol id");
       assertIndexedIdentity(subscription.railId, association.railId, "Boss subscription rail id");
       assertIndexedIdentity(subscription.bossAccount, association.bossAccount, "Boss subscription account");
       assertIndexedIdentity(subscription.beneficiary, association.payee, "Boss subscription beneficiary");
@@ -290,22 +286,14 @@ function selectRailAssociation(
   assertIndexedChain(config, association.chainId, "Boss rail association");
   assertIndexedIdentity(association.railId, expected.railId, "Boss rail association rail id");
   if (expected.subscriptionId !== undefined) {
-    assertIndexedIdentity(
-      association.subscriptionId,
-      expected.subscriptionId,
-      "Boss rail association subscription id",
-    );
+    assertIndexedIdentity(association.subscriptionId, expected.subscriptionId, "Boss rail association subscription id");
   }
   assertIndexedAuthority(
     association.filecoinPay,
     config.manifest.dependencies.filecoinPay,
     "Boss rail association Filecoin Pay authority",
   );
-  assertIndexedAuthority(
-    association.token,
-    config.manifest.dependencies.token,
-    "Boss rail association payment token",
-  );
+  assertIndexedAuthority(association.token, config.manifest.dependencies.token, "Boss rail association payment token");
   return association;
 }
 

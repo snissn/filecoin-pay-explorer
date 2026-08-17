@@ -1,11 +1,11 @@
 import type { RailSubscription, Subscription } from "@filecoin-pay/types/boss";
 import { describe, expect, it } from "vitest";
-import type { BossDeploymentManifest } from "./config";
 import {
   type PayRailAssociationFacts,
   type VerifyBossPayRailAssociationInput,
   verifyBossPayRailAssociation,
 } from "./association";
+import type { BossDeploymentManifest } from "./config";
 
 const ADDRESS = (digit: string): `0x${string}` => `0x${digit.repeat(40)}`;
 const HASH = (digit: string): `0x${string}` => `0x${digit.repeat(64)}`;
