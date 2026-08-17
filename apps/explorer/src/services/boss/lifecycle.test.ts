@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   type BossLifecycleCurrentContext,
+  BossLifecycleError,
   type BossLifecycleManagerResult,
   type BossServicesManagerLike,
-  BossLifecycleError,
   compareBossLifecycleReview,
   executeBossLifecycleReview,
   prepareBossLifecycleReview,

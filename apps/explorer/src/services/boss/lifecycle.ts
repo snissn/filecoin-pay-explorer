@@ -253,11 +253,7 @@ export async function executeBossLifecycleReview(
 
 export function serializeBossLifecycleEvidence(value: unknown): string {
   return (
-    JSON.stringify(
-      value,
-      (_key, nested) => (typeof nested === "bigint" ? nested.toString() : nested),
-      2,
-    ) ?? "null"
+    JSON.stringify(value, (_key, nested) => (typeof nested === "bigint" ? nested.toString() : nested), 2) ?? "null"
   );
 }
 
@@ -305,7 +301,7 @@ function normalizeDecimal(value: string, label: string): string {
 }
 
 function normalizeOptionalAddress(value: string | undefined): string {
-  return value !== undefined && ADDRESS.test(value) ? value.toLowerCase() : value ?? "disconnected";
+  return value !== undefined && ADDRESS.test(value) ? value.toLowerCase() : (value ?? "disconnected");
 }
 
 function normalizeOptionalBytes32(value: string): string {

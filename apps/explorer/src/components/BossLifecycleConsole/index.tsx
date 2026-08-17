@@ -8,14 +8,14 @@ import { getChain } from "@/constants/chains";
 import useSynapse from "@/hooks/useSynapse";
 import {
   type BossLifecycleAction,
+  type BossLifecycleCurrentContext,
   type BossLifecycleExecutionReceipt,
   type BossLifecycleReview,
-  type BossLifecycleCurrentContext,
-  SYNAPSE_BOSS_SERVICES_PROVENANCE,
   compareBossLifecycleReview,
   executeBossLifecycleReview,
   prepareBossLifecycleReview,
   resolveBossServicesManager,
+  SYNAPSE_BOSS_SERVICES_PROVENANCE,
   serializeBossLifecycleEvidence,
 } from "@/services/boss/lifecycle";
 import type { Network } from "@/types";
@@ -35,13 +35,9 @@ interface LifecycleActionDefinition {
   available: boolean;
 }
 
-export default function BossLifecycleConsole({
-  network,
-  subscription,
-  onRefresh,
-}: BossLifecycleConsoleProps) {
+export default function BossLifecycleConsole({ network, subscription, onRefresh }: BossLifecycleConsoleProps) {
   const { address, chainId, isConnected } = useAccount();
-  const { synapse, isLoading: synapseLoading, error: synapseError } = useSynapse();
+  const { synapse } = useSynapse();
   const services = useMemo(() => resolveBossServicesManager(synapse), [synapse]);
   const targetChainId = getChain(network).id;
   const [topUpAmount, setTopUpAmount] = useState("");
@@ -59,7 +55,7 @@ export default function BossLifecycleConsole({
   };
   const reviewMismatches = review ? compareBossLifecycleReview(review, currentContext) : [];
   const walletReady = isConnected && address !== undefined && chainId === targetChainId;
-  const sdkReady = services.status === "available" && !synapseLoading && synapseError === null;
+  const sdkReady = services.status === "available";
   const canPrepare = walletReady && sdkReady && !isExecuting;
 
   const actions: LifecycleActionDefinition[] = [
@@ -90,7 +86,8 @@ export default function BossLifecycleConsole({
     {
       action: "stop",
       label: "Review stop",
-      description: "Prepare one Boss-operator stop. This terminates only the add-on and must preserve the base FWSS rail.",
+      description:
+        "Prepare one Boss-operator stop. This terminates only the add-on and must preserve the base FWSS rail.",
       available: subscription.state !== "ENDED",
     },
   ];
@@ -169,19 +166,16 @@ export default function BossLifecycleConsole({
       </div>
 
       {services.status === "unavailable" && (
-        <div className='mt-4 rounded-lg border border-slate-300 bg-slate-50 p-4 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-100' role='status'>
+        <div
+          className='mt-4 rounded-lg border border-slate-300 bg-slate-50 p-4 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-950/30 dark:text-slate-100'
+          role='status'
+        >
           <p className='font-semibold'>Synapse Boss release gate</p>
           <p className='mt-1'>{services.reason}</p>
           <p className='mt-2 break-all text-xs'>
             Required tracker authority: {SYNAPSE_BOSS_SERVICES_PROVENANCE.repository}@
             {SYNAPSE_BOSS_SERVICES_PROVENANCE.commit}
           </p>
-        </div>
-      )}
-
-      {synapseError && (
-        <div className='mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>
-          Synapse initialization failed: {synapseError.message}
         </div>
       )}
 
@@ -192,7 +186,10 @@ export default function BossLifecycleConsole({
       )}
 
       {isConnected && chainId !== targetChainId && (
-        <p className='mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100' role='alert'>
+        <p
+          className='mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100'
+          role='alert'
+        >
           Wallet chain {chainId ?? "unknown"} does not match route chain {targetChainId}. Switch networks before review.
         </p>
       )}
@@ -225,7 +222,9 @@ export default function BossLifecycleConsole({
               {definition.label}
             </Button>
             {!definition.available && (
-              <p className='mt-2 text-xs text-muted-foreground'>Unavailable from current indexed state {subscription.state}.</p>
+              <p className='mt-2 text-xs text-muted-foreground'>
+                Unavailable from current indexed state {subscription.state}.
+              </p>
             )}
           </div>
         ))}
@@ -250,7 +249,10 @@ export default function BossLifecycleConsole({
           </dl>
 
           {reviewMismatches.length > 0 && (
-            <div className='mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>
+            <div
+              className='mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100'
+              role='alert'
+            >
               <p className='font-semibold'>Review invalidated</p>
               <ul className='mt-2 list-disc space-y-1 pl-5 text-xs'>
                 {reviewMismatches.map((mismatch) => (
@@ -279,7 +281,10 @@ export default function BossLifecycleConsole({
       )}
 
       {error && (
-        <div className='mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>
+        <div
+          className='mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100'
+          role='alert'
+        >
           {error}
         </div>
       )}
@@ -288,14 +293,20 @@ export default function BossLifecycleConsole({
         <div className='mt-5 rounded-xl border p-4'>
           <p className='font-semibold'>Action receipt: {receipt.status}</p>
           <p className='mt-1 text-sm text-muted-foreground'>
-            A fresh review is required before any retry. The console never reruns a partial or rejected action automatically.
+            A fresh review is required before any retry. The console never reruns a partial or rejected action
+            automatically.
           </p>
           {receipt.result?.transactions && receipt.result.transactions.length > 0 && (
             <ol className='mt-4 space-y-2'>
               {receipt.result.transactions.map((transaction, index) => (
-                <li key={`${transaction.stage ?? "stage"}-${transaction.txHash ?? index}`} className='rounded-lg border p-3 text-sm'>
+                <li
+                  key={`${transaction.stage ?? "stage"}-${transaction.txHash ?? index}`}
+                  className='rounded-lg border p-3 text-sm'
+                >
                   <p className='font-medium'>{transaction.stage ?? `Stage ${index + 1}`}</p>
-                  <code className='mt-1 block break-all text-xs'>{transaction.txHash ?? "No transaction hash returned"}</code>
+                  <code className='mt-1 block break-all text-xs'>
+                    {transaction.txHash ?? "No transaction hash returned"}
+                  </code>
                 </li>
               ))}
             </ol>
