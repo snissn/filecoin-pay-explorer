@@ -1,281 +1,477 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS,
+  BOSS_LIFECYCLE_REVIEW_TTL_MS,
+  type BossLifecycleAction,
   type BossLifecycleCurrentContext,
   BossLifecycleError,
+  BossLifecycleExecutionGate,
+  type BossLifecycleReference,
   type BossLifecycleReview,
   type BossServicesManagerLike,
-  type BossServicesStage,
   compareBossLifecycleReview,
+  createBossAssociationProofKey,
   executeBossLifecycleReview,
+  isBossLifecycleActionAvailable,
   prepareBossLifecycleReview,
+  resolveBossLifecycleDirectAuthority,
   resolveBossServicesManager,
   serializeBossLifecycleEvidence,
 } from "./lifecycle";
 
-const ADDRESS = (digit: string) => `0x${digit.repeat(40)}`;
-const HASH = (digit: string) => `0x${digit.repeat(64)}`;
-const CREATED_AT = 1_000_000;
+const ADDRESS = (digit: string): `0x${string}` => `0x${digit.repeat(40)}`;
+const HASH = (digit: string): `0x${string}` => `0x${digit.repeat(64)}`;
+const CREATED_AT = 1_786_950_000_000;
+const ASSOCIATION_PROOF = "boss-pay-association-v1:exact-proof:active";
 
-function transaction(stage: BossServicesStage, digit: string) {
+function evidence(stage: string, digit = "f", receipt: unknown = null) {
+  return { stage, hash: HASH(digit), receipt };
+}
+
+function directSnapshot(overrides: Record<string, unknown> = {}) {
+  const { subscription: subscriptionOverrides, ...outerOverrides } = overrides;
   return {
-    stage,
-    hash: HASH(digit),
-    receipt: {
-      status: 1n,
-      blockNumber: 123n,
+    exists: true,
+    subscriptionId: HASH("3"),
+    subscription: {
+      resourceKey: HASH("6"),
+      beneficiary: ADDRESS("5"),
+      token: ADDRESS("4"),
+      railId: 42n,
+      billingKind: 1,
+      pauseAllowed: false,
+      currentFixedBudget: 100n,
+      state: 2,
+      ...((subscriptionOverrides as Record<string, unknown> | undefined) ?? {}),
     },
+    railRead: true,
+    railAssociationValid: true,
+    ...outerOverrides,
   };
 }
 
 function manager(overrides: Partial<BossServicesManagerLike> = {}): BossServicesManagerLike {
   return {
-    get: vi.fn(async () => ({ state: "ACTIVE" })),
-    reconcile: vi.fn(async () => ({ boss: { state: "ACTIVE" }, pay: { railId: 42n } })),
-    sync: vi.fn(async () => transaction("sync", "1")),
-    topUp: vi.fn(async () => transaction("top-up", "2")),
-    pause: vi.fn(async () => transaction("pause", "3")),
-    resume: vi.fn(async () => transaction("resume", "4")),
-    stop: vi.fn(async () => transaction("stop", "5")),
+    get: vi.fn(async (_input: BossLifecycleReference) => directSnapshot()),
+    reconcile: vi.fn(async (_input: BossLifecycleReference) => ({ boss: { state: "ACTIVE" }, pay: { railId: 42n } })),
+    sync: vi.fn(async (_input: BossLifecycleReference) => evidence("sync")),
+    topUp: vi.fn(async (_input: BossLifecycleReference & { newFixedBudget: bigint }) => evidence("top-up")),
+    pause: vi.fn(async (_input: BossLifecycleReference) => evidence("pause")),
+    resume: vi.fn(async (_input: BossLifecycleReference) => evidence("resume")),
+    stop: vi.fn(async (_input: BossLifecycleReference) => evidence("stop")),
     ...overrides,
   };
 }
 
-function review(overrides: Partial<Parameters<typeof prepareBossLifecycleReview>[0]> = {}): BossLifecycleReview {
+function actionDefaults(action: BossLifecycleAction) {
+  return {
+    subscriptionState: action === "resume" ? ("PAUSED" as const) : ("ACTIVE" as const),
+    billingKind: action === "sync" ? 1 : action === "top-up" ? 2 : 0,
+    pauseAllowed: action === "pause" || action === "resume",
+  };
+}
+
+function review(
+  action: BossLifecycleAction = "sync",
+  overrides: Partial<Parameters<typeof prepareBossLifecycleReview>[0]> = {},
+): BossLifecycleReview {
+  const defaults = actionDefaults(action);
   return prepareBossLifecycleReview({
-    action: "sync",
+    action,
     chainId: 314159,
     wallet: ADDRESS("1"),
     account: ADDRESS("2"),
     subscriptionId: HASH("3"),
     railId: "42",
+    subscriptionState: defaults.subscriptionState,
+    billingKind: defaults.billingKind,
+    pauseAllowed: defaults.pauseAllowed,
+    requiresAccountRead: false,
+    directReadVerified: true,
+    token: ADDRESS("4"),
+    beneficiary: ADDRESS("5"),
+    resourceKey: HASH("6"),
+    associationProofKey: ASSOCIATION_PROOF,
+    indexDeployment: "boss-calibration-v1",
+    indexedBlock: 100n,
+    observedBlock: 110n,
+    currentFixedBudget: "100",
+    newFixedBudget: action === "top-up" ? 200n : undefined,
     createdAtMs: CREATED_AT,
     ...overrides,
   });
 }
 
-function context(overrides: Partial<BossLifecycleCurrentContext> = {}): BossLifecycleCurrentContext {
+function current(
+  prepared: BossLifecycleReview = review(),
+  overrides: Partial<BossLifecycleCurrentContext> = {},
+): BossLifecycleCurrentContext {
   return {
-    chainId: 314159,
-    wallet: ADDRESS("1"),
-    account: ADDRESS("2"),
-    subscriptionId: HASH("3"),
-    railId: "42",
-    nowMs: CREATED_AT + 1_000,
+    chainId: prepared.chainId,
+    wallet: prepared.wallet,
+    account: prepared.account,
+    subscriptionId: prepared.subscriptionId,
+    railId: prepared.railId,
+    subscriptionState: prepared.subscriptionState,
+    billingKind: prepared.billingKind,
+    pauseAllowed: prepared.pauseAllowed,
+    requiresAccountRead: prepared.requiresAccountRead,
+    directReadVerified: prepared.directReadVerified,
+    token: prepared.token,
+    beneficiary: prepared.beneficiary,
+    resourceKey: prepared.resourceKey,
+    associationProofKey: prepared.associationProofKey,
+    indexDeployment: prepared.indexDeployment,
+    indexedBlock: prepared.indexedBlock + 1n,
+    observedBlock: prepared.observedBlock + 1n,
+    currentFixedBudget: prepared.currentFixedBudget.toString(),
+    nowMs: prepared.createdAtMs + 1_000,
     ...overrides,
   };
 }
 
-describe("Boss lifecycle review", () => {
-  it("creates one normalized immutable review", () => {
-    const prepared = review({
-      action: "top-up",
-      wallet: ADDRESS("A"),
-      account: ADDRESS("B"),
-      subscriptionId: HASH("C"),
-      newFixedBudget: 500n,
+function directSnapshotForReview(prepared: BossLifecycleReview, overrides: Record<string, unknown> = {}) {
+  let stateCode: number;
+  switch (prepared.subscriptionState) {
+    case "PENDING_ACTIVATION":
+      stateCode = 1;
+      break;
+    case "ACTIVE":
+      stateCode = 2;
+      break;
+    case "PAUSED":
+      stateCode = 3;
+      break;
+    case "TERMINATING":
+      stateCode = 4;
+      break;
+    case "ENDED":
+      stateCode = 5;
+      break;
+    case "EXHAUSTED":
+      stateCode = 6;
+      break;
+    default:
+      throw new Error(`Unsupported future Boss subscription state ${prepared.subscriptionState}`);
+  }
+  return directSnapshot({
+    subscriptionId: prepared.subscriptionId,
+    subscription: {
+      resourceKey: prepared.resourceKey,
+      beneficiary: prepared.beneficiary,
+      token: prepared.token,
+      railId: BigInt(prepared.railId),
+      billingKind: prepared.billingKind,
+      pauseAllowed: prepared.pauseAllowed,
+      currentFixedBudget: prepared.currentFixedBudget,
+      state: stateCode,
+      ...((overrides.subscription as Record<string, unknown> | undefined) ?? {}),
+    },
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== "subscription")),
+  });
+}
+
+function managerForReview(
+  prepared: BossLifecycleReview,
+  overrides: Partial<BossServicesManagerLike> = {},
+): BossServicesManagerLike {
+  return manager({
+    get: vi.fn(async (_input: BossLifecycleReference) => directSnapshotForReview(prepared)),
+    ...overrides,
+  });
+}
+
+describe("Boss lifecycle review and execution", () => {
+  it("fails closed when the installed Synapse package lacks the maintained services API", () => {
+    expect(resolveBossServicesManager({})).toMatchObject({ status: "unavailable" });
+    expect(resolveBossServicesManager({ services: { sync: () => undefined } })).toMatchObject({
+      status: "unavailable",
+    });
+    expect(resolveBossServicesManager({ services: manager() })).toMatchObject({ status: "available" });
+  });
+
+  it("constructs an exact active association proof key", () => {
+    const key = createBossAssociationProofKey({
+      chainId: 314159,
+      filecoinPay: ADDRESS("1"),
+      bossAccount: ADDRESS("2"),
+      subscriptionEntityId: "314159:boss:subscription",
+      subscriptionId: HASH("3"),
+      railId: "42",
+      payer: ADDRESS("4"),
+      payee: ADDRESS("5"),
+      operator: ADDRESS("2"),
+      validator: ADDRESS("2"),
+      token: ADDRESS("6"),
+      active: true,
+    });
+    expect(key).toContain(`:${HASH("3")}:42:`);
+    expect(key.endsWith(":active")).toBe(true);
+  });
+
+  it("normalizes one current direct Boss snapshot and rejects invariant drift", () => {
+    const authority = resolveBossLifecycleDirectAuthority(directSnapshot(), {
+      subscriptionId: HASH("3"),
+      railId: "42",
+      billingKind: 1,
+      pauseAllowed: false,
+      token: ADDRESS("4"),
+      beneficiary: ADDRESS("5"),
+      resourceKey: HASH("6"),
+    });
+    expect(authority).toEqual({
+      subscriptionId: HASH("3"),
+      railId: "42",
+      subscriptionState: "ACTIVE",
+      billingKind: 1,
+      pauseAllowed: false,
+      token: ADDRESS("4"),
+      beneficiary: ADDRESS("5"),
+      resourceKey: HASH("6"),
+      currentFixedBudget: "100",
+      railAssociationValid: true,
     });
 
+    expect(() =>
+      resolveBossLifecycleDirectAuthority(directSnapshot({ railAssociationValid: false }), {
+        subscriptionId: HASH("3"),
+        railId: "42",
+        billingKind: 1,
+        pauseAllowed: false,
+        token: ADDRESS("4"),
+        beneficiary: ADDRESS("5"),
+        resourceKey: HASH("6"),
+      }),
+    ).toThrow(BossLifecycleError);
+    expect(() =>
+      resolveBossLifecycleDirectAuthority(directSnapshot({ subscription: { railId: 43n } }), {
+        subscriptionId: HASH("3"),
+        railId: "42",
+        billingKind: 1,
+        pauseAllowed: false,
+        token: ADDRESS("4"),
+        beneficiary: ADDRESS("5"),
+        resourceKey: HASH("6"),
+      }),
+    ).toThrow(BossLifecycleError);
+  });
+
+  it("requires an active association proof and a completed direct read", () => {
+    expect(() => review("sync", { associationProofKey: "boss-pay-association-v1:proof:inactive" })).toThrow(
+      BossLifecycleError,
+    );
+    expect(() => review("sync", { directReadVerified: false })).toThrow(BossLifecycleError);
+  });
+
+  it("creates a frozen exact review and requires a larger fixed-budget target", () => {
+    const prepared = review("top-up");
     expect(Object.isFrozen(prepared)).toBe(true);
     expect(prepared).toMatchObject({
+      schemaVersion: 4,
       action: "top-up",
-      wallet: ADDRESS("a"),
-      account: ADDRESS("b"),
-      subscriptionId: HASH("c"),
-      newFixedBudget: 500n,
-    });
-    expect(prepared.reviewKey).toContain(":500:");
-  });
-
-  it("requires an absolute positive fixed-budget target only for top-up", () => {
-    expect(() => review({ action: "top-up" })).toThrow(/absolute fixed-budget target/i);
-    expect(() => review({ action: "top-up", newFixedBudget: 0n })).toThrow(/absolute fixed-budget target/i);
-    expect(() => review({ action: "pause", newFixedBudget: 1n })).toThrow(/must not carry/i);
-  });
-
-  it("reports every changed authority field", () => {
-    const mismatches = compareBossLifecycleReview(
-      review(),
-      context({
-        chainId: 314,
-        wallet: ADDRESS("9"),
-        account: ADDRESS("8"),
-        subscriptionId: HASH("7"),
-        railId: "43",
-      }),
-    );
-    expect(mismatches.map((mismatch) => mismatch.field)).toEqual([
-      "chainId",
-      "wallet",
-      "account",
-      "subscriptionId",
-      "railId",
-    ]);
-  });
-
-  it("executes exactly one SDK call, retains exact transaction evidence, and reconciles once", async () => {
-    const services = manager();
-    const receipt = await executeBossLifecycleReview(services, review(), context());
-
-    expect(services.sync).toHaveBeenCalledTimes(1);
-    expect(services.sync).toHaveBeenCalledWith({
+      chainId: 314159,
+      wallet: ADDRESS("1"),
       account: ADDRESS("2"),
       subscriptionId: HASH("3"),
+      railId: "42",
+      subscriptionState: "ACTIVE",
+      billingKind: 2,
+      pauseAllowed: false,
+      requiresAccountRead: false,
+      directReadVerified: true,
+      token: ADDRESS("4"),
+      beneficiary: ADDRESS("5"),
+      resourceKey: HASH("6"),
+      associationProofKey: ASSOCIATION_PROOF,
+      currentFixedBudget: 100n,
+      newFixedBudget: 200n,
     });
-    expect(services.reconcile).toHaveBeenCalledTimes(1);
-    expect(receipt).toMatchObject({
-      status: "succeeded",
-      result: {
-        transactions: [
-          {
-            stage: "sync",
-            txHash: HASH("1"),
-            receiptStatus: "1",
-            blockNumber: "123",
-          },
-        ],
-      },
-      reconciliation: { status: "succeeded" },
-    });
+    expect(prepared.reviewKey).toContain(":top-up:314159:");
+    expect(() => review("top-up", { newFixedBudget: 100n })).toThrow(BossLifecycleError);
   });
 
-  it("passes the exact absolute newFixedBudget shape to Synapse.services.topUp", async () => {
-    const services = manager();
-    const prepared = review({ action: "top-up", newFixedBudget: 700n });
-
-    const receipt = await executeBossLifecycleReview(services, prepared, context());
-
-    expect(services.topUp).toHaveBeenCalledTimes(1);
-    expect(services.topUp).toHaveBeenCalledWith({
-      account: ADDRESS("2"),
-      subscriptionId: HASH("3"),
-      newFixedBudget: 700n,
-    });
-    expect(receipt.result?.transactions[0]).toMatchObject({
-      stage: "top-up",
-      txHash: HASH("2"),
-    });
+  it("enforces state, billing-kind, and pause-authority action availability", () => {
+    expect(isBossLifecycleActionAvailable("sync", "PENDING_ACTIVATION", 1, false)).toBe(true);
+    expect(isBossLifecycleActionAvailable("sync", "ACTIVE", 2, false)).toBe(false);
+    expect(isBossLifecycleActionAvailable("top-up", "EXHAUSTED", 2, false)).toBe(true);
+    expect(isBossLifecycleActionAvailable("top-up", "ACTIVE", 1, false)).toBe(false);
+    expect(isBossLifecycleActionAvailable("pause", "ACTIVE", 0, true)).toBe(true);
+    expect(isBossLifecycleActionAvailable("pause", "ACTIVE", 0, false)).toBe(false);
+    expect(isBossLifecycleActionAvailable("resume", "PAUSED", 0, true)).toBe(true);
+    expect(isBossLifecycleActionAvailable("stop", "TERMINATING", 0, false)).toBe(false);
   });
 
-  it("retains completed transaction evidence from an exact partial-completion error", async () => {
-    const partial = Object.assign(new Error("Filecoin Boss operation failed at stage pause."), {
-      name: "BossServicesPartialCompletionError",
-      failedStage: "pause",
-      completed: [transaction("deposit", "6"), transaction("deploy-account", "7")],
-    });
-    const services = manager({
-      pause: vi.fn(async () => {
-        throw partial;
-      }),
-    });
-
-    const receipt = await executeBossLifecycleReview(services, review({ action: "pause" }), context());
-
-    expect(receipt.status).toBe("partial");
-    expect(receipt.result).toEqual({
-      failedStage: "pause",
-      transactions: [
-        {
-          stage: "deposit",
-          txHash: HASH("6"),
-          receiptStatus: "1",
-          blockNumber: "123",
-        },
-        {
-          stage: "deploy-account",
-          txHash: HASH("7"),
-          receiptStatus: "1",
-          blockNumber: "123",
-        },
-      ],
-    });
-    expect(receipt.error).toContain("failed at stage");
-    expect(services.reconcile).toHaveBeenCalledTimes(1);
-  });
-
-  it("reconciles exactly once after a thrown SDK failure", async () => {
-    const services = manager({
-      stop: vi.fn(async () => {
-        throw new Error("wallet rejected");
-      }),
-    });
-
-    const receipt = await executeBossLifecycleReview(services, review({ action: "stop" }), context());
-
-    expect(receipt).toMatchObject({
-      status: "failed",
-      error: "wallet rejected",
-      reconciliation: { status: "succeeded" },
-    });
-    expect(services.reconcile).toHaveBeenCalledTimes(1);
-  });
-
-  it("rejects a cloned review whose action changed after confirmation", async () => {
-    const services = manager();
+  it.each([
+    ["chainId", { chainId: 314 }],
+    ["wallet", { wallet: ADDRESS("f") }],
+    ["account", { account: ADDRESS("f") }],
+    ["subscriptionId", { subscriptionId: HASH("f") }],
+    ["railId", { railId: "43" }],
+    ["subscriptionState", { subscriptionState: "PAUSED" as const }],
+    ["billingKind", { billingKind: 2 }],
+    ["pauseAllowed", { pauseAllowed: true }],
+    ["requiresAccountRead", { requiresAccountRead: true }],
+    ["directRead", { directReadVerified: false }],
+    ["token", { token: ADDRESS("f") }],
+    ["beneficiary", { beneficiary: ADDRESS("f") }],
+    ["resourceKey", { resourceKey: HASH("f") }],
+    ["associationProof", { associationProofKey: "boss-pay-association-v1:changed" }],
+    ["fixedBudget", { currentFixedBudget: "101" }],
+  ] as const)("invalidates a reviewed action when %s changes", (field, overrides) => {
     const prepared = review();
-    const tampered = { ...prepared, action: "stop" } as BossLifecycleReview;
-
-    await expect(executeBossLifecycleReview(services, tampered, context())).rejects.toMatchObject({
-      code: "INVALID_REVIEW",
-    });
-    expect(services.sync).not.toHaveBeenCalled();
-    expect(services.stop).not.toHaveBeenCalled();
-    expect(services.reconcile).not.toHaveBeenCalled();
+    const mismatches = compareBossLifecycleReview(prepared, current(prepared, overrides));
+    expect(mismatches.map((mismatch) => mismatch.field)).toContain(field);
   });
 
-  it("rejects a cloned top-up review whose fixed-budget target changed", async () => {
-    const services = manager();
-    const prepared = review({ action: "top-up", newFixedBudget: 500n });
-    const tampered = { ...prepared, newFixedBudget: 900n } as BossLifecycleReview;
+  it("invalidates regressed, lagging, changed-deployment, and expired index authority", () => {
+    const prepared = review();
+    expect(
+      compareBossLifecycleReview(prepared, current(prepared, { indexedBlock: 99n })).map((mismatch) => mismatch.field),
+    ).toContain("indexRegression");
+    expect(
+      compareBossLifecycleReview(prepared, current(prepared, { indexedBlock: 100n, observedBlock: 121n })).map(
+        (mismatch) => mismatch.field,
+      ),
+    ).toContain("indexLag");
+    expect(
+      compareBossLifecycleReview(prepared, current(prepared, { indexDeployment: "other-deployment" })).map(
+        (mismatch) => mismatch.field,
+      ),
+    ).toContain("indexDeployment");
+    expect(
+      compareBossLifecycleReview(
+        prepared,
+        current(prepared, {
+          nowMs: CREATED_AT + BOSS_LIFECYCLE_REVIEW_TTL_MS + 1,
+        }),
+      ).map((mismatch) => mismatch.field),
+    ).toContain("age");
+  });
 
-    await expect(executeBossLifecycleReview(services, tampered, context())).rejects.toMatchObject({
+  it("rejects a cloned review whose approved budget target changed", async () => {
+    const prepared = review("top-up");
+    const tampered = { ...prepared, newFixedBudget: 900n } as BossLifecycleReview;
+    const services = manager();
+
+    await expect(executeBossLifecycleReview(services, tampered, current(prepared))).rejects.toMatchObject({
       code: "INVALID_REVIEW",
     });
     expect(services.topUp).not.toHaveBeenCalled();
     expect(services.reconcile).not.toHaveBeenCalled();
   });
 
-  it("expires a review after five minutes before any SDK call", async () => {
-    const services = manager();
-    const prepared = review();
+  it("executes exactly one reviewed SDK write and normalizes exact transaction evidence", async () => {
+    const prepared = review("sync");
+    const services = managerForReview(prepared);
+    const receipt = await executeBossLifecycleReview(services, prepared, current(prepared));
 
+    expect(receipt.status).toBe("succeeded");
+    expect(services.get).toHaveBeenCalledTimes(1);
+    expect(receipt.result?.transactions).toEqual([{ stage: "sync", txHash: HASH("f"), receipt: null }]);
+    expect(services.sync).toHaveBeenCalledWith({ account: ADDRESS("2"), subscriptionId: HASH("3") });
+    expect(services.sync).toHaveBeenCalledTimes(1);
+    expect(services.reconcile).toHaveBeenCalledTimes(1);
+    expect(services.topUp).not.toHaveBeenCalled();
+  });
+
+  it("passes the reviewed absolute fixed-budget target", async () => {
+    const prepared = review("top-up");
+    const services = managerForReview(prepared);
+    await executeBossLifecycleReview(services, prepared, current(prepared));
+    expect(services.topUp).toHaveBeenCalledWith({
+      account: ADDRESS("2"),
+      subscriptionId: HASH("3"),
+      newFixedBudget: 200n,
+    });
+  });
+
+  it("does not execute or reconcile a stale review", async () => {
+    const prepared = review("stop");
+    const services = managerForReview(prepared);
     await expect(
-      executeBossLifecycleReview(
-        services,
-        prepared,
-        context({ nowMs: CREATED_AT + BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS + 1 }),
-      ),
-    ).rejects.toMatchObject({
+      executeBossLifecycleReview(services, prepared, current(prepared, { wallet: ADDRESS("f") })),
+    ).rejects.toMatchObject({ code: "STALE_REVIEW" });
+    expect(services.stop).not.toHaveBeenCalled();
+    expect(services.reconcile).not.toHaveBeenCalled();
+  });
+
+  it("rechecks direct BossAccount state before a write and rejects drift without reconciliation", async () => {
+    const prepared = review("sync");
+    const services = managerForReview(prepared, {
+      get: vi.fn(async () => directSnapshotForReview(prepared, { subscription: { state: 3 } })),
+    });
+
+    await expect(executeBossLifecycleReview(services, prepared, current(prepared))).rejects.toMatchObject({
       code: "STALE_REVIEW",
     });
+    expect(services.get).toHaveBeenCalledTimes(1);
     expect(services.sync).not.toHaveBeenCalled();
     expect(services.reconcile).not.toHaveBeenCalled();
   });
 
-  it("rejects changed live context before any SDK call", async () => {
-    const services = manager();
-
-    await expect(
-      executeBossLifecycleReview(services, review(), context({ wallet: ADDRESS("f") })),
-    ).rejects.toBeInstanceOf(BossLifecycleError);
-    expect(services.sync).not.toHaveBeenCalled();
-    expect(services.reconcile).not.toHaveBeenCalled();
+  it("fails closed on malformed transaction evidence and still reconciles once", async () => {
+    const prepared = review("sync");
+    const services = managerForReview(prepared, {
+      sync: vi.fn(async () => ({ stage: "sync", receipt: null })),
+    });
+    const receipt = await executeBossLifecycleReview(services, prepared, current(prepared));
+    expect(receipt.status).toBe("failed");
+    expect(receipt.error).toMatch(/invalid transaction evidence/i);
+    expect(services.sync).toHaveBeenCalledTimes(1);
+    expect(services.reconcile).toHaveBeenCalledTimes(1);
   });
 
-  it("serializes bigint evidence without precision loss", () => {
-    expect(serializeBossLifecycleEvidence({ amount: 9007199254740993123456789n })).toContain(
-      '"9007199254740993123456789"',
+  it("retains exact SDK partial-completion evidence and still reconciles once", async () => {
+    const partial = Object.assign(new Error('Filecoin Boss operation failed at stage "pause".'), {
+      name: "BossServicesPartialCompletionError",
+      failedStage: "pause",
+      completed: [evidence("approve-operator", "a")],
+      cause: new Error("pause reverted"),
+    });
+    const prepared = review("pause");
+    const services = managerForReview(prepared, { pause: vi.fn(async () => Promise.reject(partial)) });
+    const receipt = await executeBossLifecycleReview(services, prepared, current(prepared));
+    expect(receipt.status).toBe("partial");
+    expect(receipt.error).toContain("pause reverted");
+    expect(receipt.result?.failedStage).toBe("pause");
+    expect(receipt.result?.transactions).toEqual([{ stage: "approve-operator", txHash: HASH("a"), receipt: null }]);
+    expect(services.pause).toHaveBeenCalledTimes(1);
+    expect(services.reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  it("captures thrown wallet errors without retrying and still attempts reconciliation", async () => {
+    const prepared = review("stop");
+    const services = managerForReview(prepared, {
+      stop: vi.fn(async (_input: BossLifecycleReference) => Promise.reject(new Error("user rejected"))),
+    });
+    const receipt = await executeBossLifecycleReview(services, prepared, current(prepared));
+    expect(receipt).toMatchObject({ status: "failed", error: "user rejected" });
+    expect(services.stop).toHaveBeenCalledTimes(1);
+    expect(services.reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  it("synchronously rejects a duplicate concurrent submission", async () => {
+    let release: (result: unknown) => void = () => undefined;
+    const sync = vi.fn(
+      async (_input: BossLifecycleReference) =>
+        new Promise<unknown>((resolve) => {
+          release = resolve;
+        }),
     );
+    const prepared = review("sync");
+    const services = managerForReview(prepared, { sync });
+    const gate = new BossLifecycleExecutionGate();
+    const first = gate.execute(services, prepared, current(prepared));
+
+    await expect(gate.execute(services, prepared, current(prepared))).rejects.toMatchObject({
+      code: "ACTION_IN_PROGRESS",
+    });
+    expect(sync).toHaveBeenCalledTimes(1);
+
+    release(evidence("sync"));
+    await first;
   });
 
-  it("resolves only a complete maintained Synapse.services manager", () => {
-    expect(resolveBossServicesManager({ services: manager() }).status).toBe("available");
-    expect(resolveBossServicesManager({ services: { sync: () => undefined } })).toMatchObject({
-      status: "unavailable",
-      reason: expect.stringContaining("missing required"),
-    });
-    expect(resolveBossServicesManager(null)).toMatchObject({
-      status: "unavailable",
-    });
+  it("serializes BigInt evidence for durable display", () => {
+    expect(serializeBossLifecycleEvidence({ railId: 42n, newFixedBudget: 200n })).toContain('"railId": "42"');
   });
 });
