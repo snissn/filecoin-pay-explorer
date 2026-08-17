@@ -1,0 +1,210 @@
+name: Qualify combined Boss D0-D3 integration
+
+on:
+  push:
+    branches:
+      - gpt56/issue-14-17-boss-a10-d3-integration
+    paths:
+      - ".github/workflows/d0-d3-integration.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: d0-d3-integration
+  cancel-in-progress: false
+
+jobs:
+  qualify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact trigger
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify isolated trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "594637641a73d3d5357bbc1171972897afa0e1cd"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/d0-d3-integration.yml"
+          test -f .github/scripts/integrate_d0_d3.py
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 9.15.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Restore exact-qualified D0 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags https://github.com/snissn/filecoin-pay-explorer.git \
+            refs/heads/gpt56/issue-14-boss-a10-schema-sync
+          test "$(git rev-parse FETCH_HEAD)" = "0c518891046de41ead7dc4c25c89accaad0e469d"
+          git checkout FETCH_HEAD -- \
+            apps/explorer/src/components/BossPayAssociation/index.tsx \
+            apps/explorer/src/components/BossService/index.tsx \
+            apps/explorer/src/components/BossServices/index.tsx \
+            apps/explorer/src/services/boss/association-client.test.ts \
+            apps/explorer/src/services/boss/association.test.ts \
+            apps/explorer/src/services/boss/association.ts \
+            apps/explorer/src/services/boss/client-request.test.ts \
+            apps/explorer/src/services/boss/client.ts \
+            apps/explorer/src/services/boss/presentation.test.ts \
+            apps/explorer/src/services/boss/presentation.ts \
+            apps/explorer/src/services/boss/queries.ts \
+            packages/types/README.md \
+            packages/types/schemas/boss.schema.graphql \
+            packages/types/scripts/validate-boss-client-schema.mjs
+
+      - name: Apply bounded D3 integration repair
+        run: python .github/scripts/integrate_d0_d3.py
+
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format combined source
+        run: >-
+          pnpm exec biome check --write
+          apps/explorer/src/components/BossLifecycleConsole/index.tsx
+          apps/explorer/src/components/BossPayAssociation/index.tsx
+          apps/explorer/src/components/BossService/index.tsx
+          apps/explorer/src/components/BossServices/index.tsx
+          apps/explorer/src/services/boss
+          packages/types/README.md
+          packages/types/schemas/boss.schema.graphql
+          packages/types/scripts/validate-boss-client-schema.mjs
+          packages/types/scripts/validate-synapse-boss-services.mjs
+
+      - name: Verify exact merged Boss schema authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/snissn/filecoin-boss/43786a88c726e85a24988d90c234eae220e58686/packages/subgraph/schema.graphql \
+            --output /tmp/a10.schema.graphql
+          echo "c259c38ffe378115cd843c687a422b0297c0c62940aa6878666439eafbb287ee  /tmp/a10.schema.graphql" | sha256sum --check
+          node packages/types/scripts/validate-boss-client-schema.mjs /tmp/a10.schema.graphql
+
+      - name: Verify exact Synapse Boss manager authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote https://github.com/snissn/synapse-sdk.git refs/heads/gpt56/tracker-filecoin-boss-sdk | cut -f1)" = \
+            "f35aeeb822bb9f95d03a66a51e85ed5f1fdcca02"
+          base=https://raw.githubusercontent.com/snissn/synapse-sdk/f35aeeb822bb9f95d03a66a51e85ed5f1fdcca02/packages/synapse-sdk/src/services
+          curl --fail --silent --show-error --location "$base/manager.ts" --output /tmp/synapse-manager.ts
+          curl --fail --silent --show-error --location "$base/types.ts" --output /tmp/synapse-types.ts
+          curl --fail --silent --show-error --location "$base/errors.ts" --output /tmp/synapse-errors.ts
+          node packages/types/scripts/validate-synapse-boss-services.mjs \
+            /tmp/synapse-manager.ts /tmp/synapse-types.ts /tmp/synapse-errors.ts
+
+      - name: Generate and build distinct Boss and Pay types
+        run: pnpm --filter @filecoin-pay/types build
+
+      - name: Run complete Boss regression suite
+        run: pnpm --filter @filecoin-pay/explorer test -- src/services/boss
+
+      - name: Type check D0 through D3 consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @filecoin-pay/types type-check
+          pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d0.json --noEmit
+          pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d1.json --noEmit
+          pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d2.json --noEmit
+          pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d3.json --noEmit
+
+      - name: Build monorepo
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_SUBGRAPH_URL_MAINNET: https://placeholder.invalid/mainnet
+          NEXT_PUBLIC_SUBGRAPH_URL_CALIBRATION: https://placeholder.invalid/calibration
+
+      - name: Check combined source
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec biome ci \
+            apps/explorer/src/components/BossLifecycleConsole/index.tsx \
+            apps/explorer/src/components/BossPayAssociation/index.tsx \
+            apps/explorer/src/components/BossService/index.tsx \
+            apps/explorer/src/components/BossServices/index.tsx \
+            apps/explorer/src/services/boss \
+            packages/types/scripts/validate-boss-client-schema.mjs \
+            packages/types/scripts/validate-synapse-boss-services.mjs
+          git diff --check
+
+      - name: Upload exact qualified integration
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: boss-d0-d3-integration
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            apps/explorer/src/components/BossLifecycleConsole/index.tsx
+            apps/explorer/src/components/BossPayAssociation/index.tsx
+            apps/explorer/src/components/BossService/index.tsx
+            apps/explorer/src/components/BossServices/index.tsx
+            apps/explorer/src/services/boss/association-client.test.ts
+            apps/explorer/src/services/boss/association.test.ts
+            apps/explorer/src/services/boss/association.ts
+            apps/explorer/src/services/boss/client-request.test.ts
+            apps/explorer/src/services/boss/client.ts
+            apps/explorer/src/services/boss/lifecycle.test.ts
+            apps/explorer/src/services/boss/lifecycle.ts
+            apps/explorer/src/services/boss/presentation.test.ts
+            apps/explorer/src/services/boss/presentation.ts
+            apps/explorer/src/services/boss/queries.ts
+            packages/types/README.md
+            packages/types/schemas/boss.schema.graphql
+            packages/types/scripts/validate-boss-client-schema.mjs
+            packages/types/scripts/validate-synapse-boss-services.mjs
+
+      - name: Publish exact source under head lease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          paths=(
+            apps/explorer/src/components/BossLifecycleConsole/index.tsx
+            apps/explorer/src/components/BossPayAssociation/index.tsx
+            apps/explorer/src/components/BossService/index.tsx
+            apps/explorer/src/components/BossServices/index.tsx
+            apps/explorer/src/services/boss/association-client.test.ts
+            apps/explorer/src/services/boss/association.test.ts
+            apps/explorer/src/services/boss/association.ts
+            apps/explorer/src/services/boss/client-request.test.ts
+            apps/explorer/src/services/boss/client.ts
+            apps/explorer/src/services/boss/lifecycle.test.ts
+            apps/explorer/src/services/boss/lifecycle.ts
+            apps/explorer/src/services/boss/presentation.test.ts
+            apps/explorer/src/services/boss/presentation.ts
+            apps/explorer/src/services/boss/queries.ts
+            packages/types/README.md
+            packages/types/schemas/boss.schema.graphql
+            packages/types/scripts/validate-boss-client-schema.mjs
+            packages/types/scripts/validate-synapse-boss-services.mjs
+          )
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${paths[@]}"
+          expected=$(printf '%s\n' "${paths[@]}" | sort)
+          actual=$(git diff --cached --name-only | sort)
+          test "$actual" = "$expected"
+          git commit -m "fix(explorer): integrate authoritative D0 and D3 contracts"
+          auth_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          remote_head=$(git ls-remote "$auth_url" refs/heads/gpt56/issue-14-17-boss-a10-d3-integration | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          git push "$auth_url" "HEAD:refs/heads/gpt56/issue-14-17-boss-a10-d3-integration"
