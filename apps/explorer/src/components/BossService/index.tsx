@@ -14,8 +14,9 @@ import BossPayAssociation from "@/components/BossPayAssociation";
 import { getChain } from "@/constants/chains";
 import { useBossGraphQLQuery } from "@/hooks/useBossGraphQLQuery";
 import {
-  BOSS_AUTHORITY_DISCLOSURES,
+  describeBossAuthorities,
   describeBossIndexHealth,
+  describeBossStateAuthority,
   describeQuoteFreshness,
   formatBossIdentifier,
   formatBossInteger,
@@ -146,6 +147,7 @@ export default function BossService() {
 
           <BossStatusPanel title='Boss index' status={indexStatus} metadata={indexQuery.data?.deployment} />
           <BossStatusPanel title='Quote freshness' status={quoteStatus} />
+          <BossStatusPanel title='Current-state authority' status={describeBossStateAuthority(subscription)} />
           <BossPayAssociation network={network} railId={subscription.railId} subscription={subscription} />
 
           <BossSectionCard
@@ -156,7 +158,7 @@ export default function BossService() {
               <BossDetailField label='State' value={<BossStateBadge state={subscription.state} />} />
               <BossDetailField label='Subscription ID' value={<ExactValue value={subscription.subscriptionId} />} />
               <BossDetailField label='Entity ID' value={<ExactValue value={subscription.id} />} />
-              <BossDetailField label='Boss account' value={<ExactValue value={subscription.bossAccount} />} />
+              <BossDetailField label='Boss account' value={<ExactValue value={subscription.accountAddress} />} />
               <BossDetailField label='Provider' value={<ExactValue value={subscription.provider} />} />
               <BossDetailField label='Beneficiary' value={<ExactValue value={subscription.beneficiary} />} />
               <BossDetailField label='Resource key' value={<ExactValue value={subscription.resourceKey} />} />
@@ -175,8 +177,11 @@ export default function BossService() {
           >
             <dl className='grid gap-5 sm:grid-cols-2 lg:grid-cols-3'>
               <BossDetailField label='Payment token' value={<ExactValue value={subscription.token} />} />
-              <BossDetailField label='Rate per epoch' value={formatBossInteger(subscription.ratePerEpoch)} />
-              <BossDetailField label='Fixed budget remaining' value={formatBossInteger(subscription.fixedBudget)} />
+              <BossDetailField label='Rate per epoch' value={formatBossInteger(subscription.acceptedRatePerEpoch)} />
+              <BossDetailField
+                label='Fixed budget remaining'
+                value={formatBossInteger(subscription.currentFixedBudget)}
+              />
               <BossDetailField label='Lifetime cap' value={formatLifetimeCap(subscription.lifetimeCapGross)} />
               <BossDetailField label='Lifetime cap remaining' value={formatRemainingLifetimeCap(subscription)} />
               <BossDetailField label='Raw gross usage' value={formatBossInteger(subscription.totalRawGross)} />
@@ -217,10 +222,10 @@ export default function BossService() {
 
           <BossSectionCard
             title='Authority boundaries'
-            description='Unavailable facts remain unavailable; this page does not convert identifiers into assurances.'
+            description='Accepted assurance, dependency, and access commitments are shown exactly, without promoting them into service-quality claims.'
           >
             <dl className='grid gap-5 lg:grid-cols-3'>
-              {BOSS_AUTHORITY_DISCLOSURES.map((disclosure) => (
+              {describeBossAuthorities(subscription).map((disclosure) => (
                 <BossDetailField
                   key={disclosure.label}
                   label={disclosure.label}
@@ -278,7 +283,7 @@ export default function BossService() {
                   <thead className='border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground'>
                     <tr>
                       <th className='px-4 py-3 font-semibold'>Claim</th>
-                      <th className='px-4 py-3 font-semibold'>Observed usage</th>
+                      <th className='px-4 py-3 font-semibold'>Units</th>
                       <th className='px-4 py-3 font-semibold'>Raw gross</th>
                       <th className='px-4 py-3 font-semibold'>Charged gross</th>
                       <th className='px-4 py-3 font-semibold'>Block</th>
@@ -291,7 +296,7 @@ export default function BossService() {
                         <td className='px-4 py-3'>
                           <code title={claim.claimId}>{formatBossIdentifier(claim.claimId)}</code>
                         </td>
-                        <td className='px-4 py-3'>{formatBossInteger(claim.observedUsage)}</td>
+                        <td className='px-4 py-3'>{formatBossInteger(claim.units)}</td>
                         <td className='px-4 py-3'>{formatBossInteger(claim.rawGross)}</td>
                         <td className='px-4 py-3'>{formatBossInteger(claim.chargedGross)}</td>
                         <td className='px-4 py-3'>{formatBossInteger(claim.blockNumber)}</td>

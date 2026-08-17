@@ -70,7 +70,7 @@ export interface BossIndexStatus {
   deployment: string;
 }
 
-export type BossResourceIdentity = Pick<Subscription, "bossAccount" | "resourceKey" | "subscriptionId">;
+export type BossResourceIdentity = Pick<Subscription, "accountAddress" | "resourceKey" | "subscriptionId">;
 
 export interface BossGraphQLClient {
   readonly config: BossDataSourceConfig;
@@ -187,7 +187,7 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       assertIndexedChain(config, resource.chainId, "Boss resource");
       assertIndexedIdentity(resource.subscriptionId, identity.subscriptionId, "Boss resource subscription id");
       assertIndexedIdentity(resource.resourceKey, identity.resourceKey, "Boss resource key");
-      assertIndexedIdentity(resource.bossAccount, identity.bossAccount, "Boss resource account");
+      assertIndexedIdentity(resource.bossAccount, identity.accountAddress, "Boss resource account");
       return resource;
     },
     async getSubscription(id) {
@@ -219,7 +219,7 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       assertSubscriptionAuthority(config, subscription);
       assertIndexedIdentity(subscription.subscriptionId, association.subscriptionId, "Boss subscription protocol id");
       assertIndexedIdentity(subscription.railId, association.railId, "Boss subscription rail id");
-      assertIndexedIdentity(subscription.bossAccount, association.bossAccount, "Boss subscription account");
+      assertIndexedIdentity(subscription.accountAddress, association.bossAccount, "Boss subscription account");
       assertIndexedIdentity(subscription.beneficiary, association.payee, "Boss subscription beneficiary");
       assertIndexedIdentity(subscription.token, association.token, "Boss subscription token");
       return subscription;

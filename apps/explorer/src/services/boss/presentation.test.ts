@@ -1,8 +1,9 @@
 import type { Subscription } from "@filecoin-pay/types/boss";
 import { describe, expect, it } from "vitest";
 import {
-  BOSS_AUTHORITY_DISCLOSURES,
+  describeBossAuthorities,
   describeBossIndexHealth,
+  describeBossStateAuthority,
   describeQuoteFreshness,
   formatBossInteger,
   formatLifetimeCap,
@@ -10,36 +11,65 @@ import {
 } from "./presentation";
 
 const MAX_UINT256 = ((1n << 256n) - 1n).toString();
+const ADDRESS = (digit: string): `0x${string}` => `0x${digit.repeat(40)}`;
+const HASH = (digit: string): `0x${string}` => `0x${digit.repeat(64)}`;
 
 function subscription(overrides: Partial<Subscription> = {}): Subscription {
   return {
     __typename: "Subscription",
     id: "subscription-entity",
     chainId: "314159",
-    bossAccount: `0x${"1".repeat(40)}`,
-    subscriptionId: `0x${"2".repeat(64)}`,
+    accountAddress: ADDRESS("1"),
+    subscriptionId: HASH("2"),
+    offerHash: HASH("3"),
+    resourceKey: HASH("4"),
     railId: "7",
-    resourceKey: `0x${"3".repeat(64)}`,
-    provider: `0x${"4".repeat(40)}`,
-    beneficiary: `0x${"5".repeat(40)}`,
-    token: `0x${"6".repeat(40)}`,
-    resourceAdapter: `0x${"7".repeat(40)}`,
-    pricingAdapter: `0x${"8".repeat(40)}`,
-    state: "ACTIVE",
-    ratePerEpoch: "10",
-    fixedBudget: "100",
+    beneficiary: ADDRESS("5"),
+    token: ADDRESS("6"),
+    provider: ADDRESS("7"),
+    reporter: ADDRESS("8"),
+    resourceAdapter: ADDRESS("9"),
+    pricingAdapter: ADDRESS("a"),
+    resourceDataHash: HASH("b"),
+    pricingDataHash: HASH("c"),
+    accessGrantHash: HASH("d"),
+    policyWord: "0",
+    billingKind: 2,
+    assuranceKind: 2,
+    dependencyKind: 1,
+    activationKind: 0,
+    terminationBillingKind: 0,
+    pauseAllowed: true,
+    maxRatePerEpoch: "100",
+    maxFixedLockup: "1000",
+    maxSingleCharge: "100",
+    maxChargePerWindow: "1000",
     lifetimeCapGross: "1000",
+    chargeWindowEpochs: "10",
+    notAfterEpoch: "10000",
+    maxLockupPeriod: "100",
+    acceptedRatePerEpoch: "10",
+    acceptedEpoch: "120",
+    quoteEpoch: "120",
+    quoteValidThroughEpoch: "160",
+    quoteTtlEpochs: "40",
+    currentFixedBudget: "100",
     totalRawGross: "300",
     totalChargedGross: "250",
     claimCount: "3",
-    quoteEpoch: "120",
-    quoteValidThroughEpoch: "160",
-    resourceStatusHash: `0x${"9".repeat(64)}`,
+    provisioningHash: null,
+    resourceStatusHash: HASH("e"),
     activatedEpoch: "121",
     pausedEpoch: null,
+    resumedEpoch: null,
     terminationRequestedEpoch: null,
     payEndEpoch: null,
     finalSettledEpoch: null,
+    pauseRateUpdateDeferred: false,
+    state: "ACTIVE",
+    requiresAccountRead: false,
+    createdBlock: "120",
+    createdTransaction: HASH("f"),
     ...overrides,
   };
 }
@@ -56,26 +86,36 @@ describe("Boss read presentation", () => {
     expect(formatRemainingLifetimeCap(subscription({ lifetimeCapGross: "100", totalChargedGross: "125" }))).toBe("0");
   });
 
-  it("distinguishes current, expired, unavailable, and invalid quote authority", () => {
+  it("distinguishes current, expired, unavailable-height, and invalid quote authority", () => {
     expect(describeQuoteFreshness(subscription(), 150n)).toMatchObject({ tone: "success" });
     expect(describeQuoteFreshness(subscription(), 161n)).toMatchObject({ tone: "warning" });
-    expect(describeQuoteFreshness(subscription({ quoteValidThroughEpoch: null }), 150n)).toMatchObject({
-      label: "Quote authority not indexed",
-      tone: "neutral",
-    });
+    expect(describeQuoteFreshness(subscription(), undefined)).toMatchObject({ tone: "neutral" });
     expect(describeQuoteFreshness(subscription({ quoteValidThroughEpoch: "not-an-epoch" }), 150n)).toMatchObject({
       label: "Invalid quote metadata",
       tone: "error",
     });
   });
 
-  it("never promotes unavailable assurance, dependency, or access authority into a verified claim", () => {
-    expect(BOSS_AUTHORITY_DISCLOSURES.map((item) => item.value)).toEqual(["Not indexed", "Not indexed", "Not indexed"]);
+  it("renders accepted assurance/dependency/access authority without overstating it", () => {
+    const disclosures = describeBossAuthorities(subscription());
+    expect(disclosures.map((item) => item.value)).toEqual(["Trusted metering", "Soft", expect.stringContaining("…")]);
     expect(
-      BOSS_AUTHORITY_DISCLOSURES.map((item) => item.detail)
+      disclosures
+        .map((item) => item.detail)
+        .join(" ")
+        .toLowerCase(),
+    ).toContain("trusted reporter");
+    expect(
+      disclosures
+        .map((item) => item.detail)
         .join(" ")
         .toLowerCase(),
     ).not.toContain("verified service");
+  });
+
+  it("flags event-stream state that needs a direct account read", () => {
+    expect(describeBossStateAuthority(subscription())).toMatchObject({ tone: "success" });
+    expect(describeBossStateAuthority(subscription({ requiresAccountRead: true }))).toMatchObject({ tone: "warning" });
   });
 
   it("reports bounded index health without hiding impossible metadata", () => {

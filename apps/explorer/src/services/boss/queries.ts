@@ -1,5 +1,64 @@
 import { gql } from "graphql-request";
 
+const SUBSCRIPTION_FIELDS = gql`
+  fragment BossSubscriptionFields on Subscription {
+    __typename
+    id
+    chainId
+    accountAddress
+    subscriptionId
+    offerHash
+    resourceKey
+    railId
+    beneficiary
+    token
+    provider
+    reporter
+    resourceAdapter
+    pricingAdapter
+    resourceDataHash
+    pricingDataHash
+    accessGrantHash
+    policyWord
+    billingKind
+    assuranceKind
+    dependencyKind
+    activationKind
+    terminationBillingKind
+    pauseAllowed
+    maxRatePerEpoch
+    maxFixedLockup
+    maxSingleCharge
+    maxChargePerWindow
+    lifetimeCapGross
+    chargeWindowEpochs
+    notAfterEpoch
+    maxLockupPeriod
+    acceptedRatePerEpoch
+    acceptedEpoch
+    quoteEpoch
+    quoteValidThroughEpoch
+    quoteTtlEpochs
+    currentFixedBudget
+    totalRawGross
+    totalChargedGross
+    claimCount
+    provisioningHash
+    resourceStatusHash
+    activatedEpoch
+    pausedEpoch
+    resumedEpoch
+    terminationRequestedEpoch
+    payEndEpoch
+    finalSettledEpoch
+    pauseRateUpdateDeferred
+    state
+    requiresAccountRead
+    createdBlock
+    createdTransaction
+  }
+`;
+
 export const GET_BOSS_INDEX_STATUS = gql`
   query GetBossIndexStatus {
     _meta {
@@ -27,6 +86,7 @@ export const GET_BOSS_ACCOUNT = gql`
       serviceRegistry
       adapterRegistry
       accountVersion
+      accountKey
       createdBlock
       createdTransaction
     }
@@ -40,12 +100,15 @@ export const GET_BOSS_SERVICE = gql`
       id
       chainId
       serviceRegistry
-      provider
+      providerAddress
       serviceId
       serviceType
       version
+      providerRevision
       metadataURI
       published
+      updatedBlock
+      updatedTransaction
     }
   }
 `;
@@ -60,6 +123,8 @@ export const GET_BOSS_RESOURCE = gql`
       resourceKey
       subscriptionId
       active
+      createdBlock
+      createdTransaction
     }
   }
 `;
@@ -74,6 +139,8 @@ export const GET_BOSS_RESOURCE_FOR_SUBSCRIPTION = gql`
       resourceKey
       subscriptionId
       active
+      createdBlock
+      createdTransaction
     }
   }
 `;
@@ -81,103 +148,28 @@ export const GET_BOSS_RESOURCE_FOR_SUBSCRIPTION = gql`
 export const GET_BOSS_SUBSCRIPTION = gql`
   query GetBossSubscription($id: ID!) {
     subscription(id: $id) {
-      __typename
-      id
-      chainId
-      bossAccount
-      subscriptionId
-      railId
-      resourceKey
-      provider
-      beneficiary
-      token
-      resourceAdapter
-      pricingAdapter
-      state
-      ratePerEpoch
-      fixedBudget
-      lifetimeCapGross
-      totalRawGross
-      totalChargedGross
-      claimCount
-      quoteEpoch
-      quoteValidThroughEpoch
-      resourceStatusHash
-      activatedEpoch
-      pausedEpoch
-      terminationRequestedEpoch
-      payEndEpoch
-      finalSettledEpoch
+      ...BossSubscriptionFields
     }
   }
+  ${SUBSCRIPTION_FIELDS}
 `;
 
 export const GET_BOSS_SUBSCRIPTION_FOR_ASSOCIATION = gql`
   query GetBossSubscriptionForAssociation($subscriptionId: Bytes!) {
     subscriptions(where: { subscriptionId: $subscriptionId }, first: 2) {
-      __typename
-      id
-      chainId
-      bossAccount
-      subscriptionId
-      railId
-      resourceKey
-      provider
-      beneficiary
-      token
-      resourceAdapter
-      pricingAdapter
-      state
-      ratePerEpoch
-      fixedBudget
-      lifetimeCapGross
-      totalRawGross
-      totalChargedGross
-      claimCount
-      quoteEpoch
-      quoteValidThroughEpoch
-      resourceStatusHash
-      activatedEpoch
-      pausedEpoch
-      terminationRequestedEpoch
-      payEndEpoch
-      finalSettledEpoch
+      ...BossSubscriptionFields
     }
   }
+  ${SUBSCRIPTION_FIELDS}
 `;
 
 export const LIST_BOSS_SUBSCRIPTIONS = gql`
   query ListBossSubscriptions($first: Int!, $skip: Int!) {
-    subscriptions(first: $first, skip: $skip, orderBy: activatedEpoch, orderDirection: desc) {
-      __typename
-      id
-      chainId
-      bossAccount
-      subscriptionId
-      railId
-      resourceKey
-      provider
-      beneficiary
-      token
-      resourceAdapter
-      pricingAdapter
-      state
-      ratePerEpoch
-      fixedBudget
-      lifetimeCapGross
-      totalRawGross
-      totalChargedGross
-      claimCount
-      quoteEpoch
-      quoteValidThroughEpoch
-      resourceStatusHash
-      activatedEpoch
-      pausedEpoch
-      terminationRequestedEpoch
-      payEndEpoch
-      finalSettledEpoch
+    subscriptions(first: $first, skip: $skip, orderBy: acceptedEpoch, orderDirection: desc) {
+      ...BossSubscriptionFields
     }
   }
+  ${SUBSCRIPTION_FIELDS}
 `;
 
 export const GET_BOSS_USAGE_CLAIMS = gql`
@@ -195,56 +187,51 @@ export const GET_BOSS_USAGE_CLAIMS = gql`
       bossAccount
       subscriptionId
       claimId
-      observedUsage
+      claimHash
+      units
       rawGross
       chargedGross
       evidenceHash
       transactionHash
       blockNumber
+      logIndex
     }
+  }
+`;
+
+const RAIL_ASSOCIATION_FIELDS = gql`
+  fragment BossRailAssociationFields on RailSubscription {
+    __typename
+    id
+    chainId
+    filecoinPay
+    bossAccount
+    subscriptionId
+    railId
+    payer
+    payee
+    operator
+    token
+    active
+    createdBlock
+    createdTransaction
   }
 `;
 
 export const GET_BOSS_RAIL_ASSOCIATION = gql`
   query GetBossRailAssociation($subscriptionId: Bytes!, $railId: BigInt!) {
     railSubscriptions(where: { subscriptionId: $subscriptionId, railId: $railId }, first: 2) {
-      __typename
-      id
-      chainId
-      filecoinPay
-      bossAccount
-      subscriptionId
-      railId
-      payer
-      payee
-      operator
-      validator
-      token
-      active
-      transactionHash
-      blockNumber
+      ...BossRailAssociationFields
     }
   }
+  ${RAIL_ASSOCIATION_FIELDS}
 `;
 
 export const GET_BOSS_RAIL_ASSOCIATION_BY_RAIL = gql`
   query GetBossRailAssociationByRail($railId: BigInt!) {
     railSubscriptions(where: { railId: $railId }, first: 2) {
-      __typename
-      id
-      chainId
-      filecoinPay
-      bossAccount
-      subscriptionId
-      railId
-      payer
-      payee
-      operator
-      validator
-      token
-      active
-      transactionHash
-      blockNumber
+      ...BossRailAssociationFields
     }
   }
+  ${RAIL_ASSOCIATION_FIELDS}
 `;

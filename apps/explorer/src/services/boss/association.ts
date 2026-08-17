@@ -86,7 +86,7 @@ export function verifyBossPayRailAssociation(input: VerifyBossPayRailAssociation
     reasons,
   );
   const subscriptionBossAccount = normalizeAddress(
-    input.bossSubscription.bossAccount,
+    input.bossSubscription.accountAddress,
     "Boss subscription account",
     reasons,
   );
@@ -118,12 +118,9 @@ export function verifyBossPayRailAssociation(input: VerifyBossPayRailAssociation
   const associationToken = normalizeAddress(input.bossAssociation.token, "Boss association payment token", reasons);
   const subscriptionToken = normalizeAddress(input.bossSubscription.token, "Boss subscription payment token", reasons);
   const payToken = normalizeAddress(input.payRail.token?.address, "Filecoin Pay payment token", reasons);
-  const associationValidator = normalizeAddress(input.bossAssociation.validator, "Boss association validator", reasons);
   const payValidator = normalizeAddress(input.payRail.validator, "Filecoin Pay validator", reasons);
 
-  if (reasons.length > 0) {
-    return { status: "unverifiable", reasons };
-  }
+  if (reasons.length > 0) return { status: "unverifiable", reasons };
 
   const mismatches: BossPayAssociationMismatch[] = [];
   compare("chainId", "route chain ID", routeChainId, "manifest chain ID", manifestChainId, mismatches);
@@ -196,6 +193,7 @@ export function verifyBossPayRailAssociation(input: VerifyBossPayRailAssociation
     payOperator,
     mismatches,
   );
+  compare("validator", "Boss account", associationBossAccount, "Filecoin Pay validator", payValidator, mismatches);
   compare(
     "token",
     "manifest payment token",
@@ -220,18 +218,8 @@ export function verifyBossPayRailAssociation(input: VerifyBossPayRailAssociation
     payToken,
     mismatches,
   );
-  compare(
-    "validator",
-    "Boss association validator",
-    associationValidator,
-    "Filecoin Pay validator",
-    payValidator,
-    mismatches,
-  );
 
-  if (mismatches.length > 0) {
-    return { status: "mismatched", mismatches };
-  }
+  if (mismatches.length > 0) return { status: "mismatched", mismatches };
 
   return {
     status: "matched",
@@ -245,7 +233,7 @@ export function verifyBossPayRailAssociation(input: VerifyBossPayRailAssociation
       payer: associationPayer,
       payee: associationPayee,
       operator: associationOperator,
-      validator: associationValidator,
+      validator: payValidator,
       token: associationToken,
       active: input.bossAssociation.active,
     },
@@ -260,9 +248,7 @@ function compare(
   right: string,
   mismatches: BossPayAssociationMismatch[],
 ): void {
-  if (left !== right) {
-    mismatches.push({ field, leftLabel, left, rightLabel, right });
-  }
+  if (left !== right) mismatches.push({ field, leftLabel, left, rightLabel, right });
 }
 
 function normalizeAddress(value: unknown, label: string, reasons: string[]): string {
