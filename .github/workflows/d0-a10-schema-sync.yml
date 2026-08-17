@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "9fad46754c68444bf93f37df7f09d378edd37419"
+          test "$(git rev-parse HEAD^)" = "599c3de50200862bbf7503ddabaa0a2b08f69d84"
           test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/d0-a10-schema-sync.yml"
           test -f .github/scripts/d0_a10_schema_sync.py
 
@@ -44,7 +44,7 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Tighten subscription-fixture selector
+      - name: Tighten transformer selectors
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +53,7 @@ jobs:
 
           path = Path(".github/scripts/d0_a10_schema_sync.py")
           text = path.read_text()
+
           old = '''replace(
               "apps/explorer/src/services/boss/association-client.test.ts",
               '    bossAccount: ADDRESS("a"),\\n    subscriptionId: HASH("b"),',
@@ -70,7 +71,23 @@ jobs:
               raise SystemExit(f"association-client.test.ts: expected one subscription field block, found {after.count(old_fields)}")
           target.write_text(before + separator + after.replace(old_fields, new_fields, 1))'''
           if text.count(old) != 1:
-              raise SystemExit("transformer selector block no longer matches exact trigger")
+              raise SystemExit("transformer subscription selector no longer matches exact trigger")
+          text = text.replace(old, new, 1)
+
+          old = '''replace(
+              "packages/types/README.md",
+              "Boss GraphQL types are generated from the distinct Boss schema",
+              "Boss GraphQL types are generated from the distinct Boss client schema, whose entity fields are validated as an exact subset of filecoin-boss main@43786a88c726e85a24988d90c234eae220e58686",
+              1,
+          )'''
+          new = '''replace(
+              "packages/types/README.md",
+              "The Pay types depend on `packages/subgraph/schemas/schema.v1.graphql`. Boss types use the separate, pinned A10 client contract at `packages/types/schemas/boss.schema.graphql`; the two schemas are never merged. Types are regenerated whenever either schema changes.",
+              "The Pay types depend on `packages/subgraph/schemas/schema.v1.graphql`. Boss types use the separate A10 client contract at `packages/types/schemas/boss.schema.graphql`; every selected entity field and type is validated as an exact subset of `snissn/filecoin-boss` `main@43786a88c726e85a24988d90c234eae220e58686`. The two schemas are never merged, and types are regenerated whenever either schema changes.",
+              1,
+          )'''
+          if text.count(old) != 1:
+              raise SystemExit("transformer README selector no longer matches exact trigger")
           path.write_text(text.replace(old, new, 1))
           PY
 
