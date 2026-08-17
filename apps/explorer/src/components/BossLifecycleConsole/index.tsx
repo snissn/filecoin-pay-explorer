@@ -2,19 +2,26 @@
 
 import { Button } from "@filecoin-foundation/ui-filecoin/Button";
 import type { Subscription } from "@filecoin-pay/types/boss";
-import { useMemo, useState } from "react";
-import { useAccount } from "wagmi";
+import { useMemo, useRef, useState } from "react";
+import { useAccount, useBlockNumber } from "wagmi";
+import CustomConnectButton from "@/components/shared/CustomConnectButton";
 import { getChain } from "@/constants/chains";
+import { useBossGraphQLQuery } from "@/hooks/useBossGraphQLQuery";
+import { useBossPayRailAssociation } from "@/hooks/useBossPayRailAssociation";
 import useSynapse from "@/hooks/useSynapse";
 import {
-  BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS,
   type BossLifecycleAction,
   type BossLifecycleCurrentContext,
+  type BossLifecycleDirectAuthority,
+  BossLifecycleExecutionGate,
   type BossLifecycleExecutionReceipt,
   type BossLifecycleReview,
   compareBossLifecycleReview,
-  executeBossLifecycleReview,
+  createBossAssociationProofKey,
+  isBossLifecycleActionAvailable,
+  isBossLifecycleIndexFresh,
   prepareBossLifecycleReview,
+  resolveBossLifecycleDirectAuthority,
   resolveBossServicesManager,
   SYNAPSE_BOSS_SERVICES_PROVENANCE,
   serializeBossLifecycleEvidence,
@@ -22,6 +29,7 @@ import {
 import type { Network } from "@/types";
 
 const POSITIVE_DECIMAL = /^[1-9]\d*$/;
+const CANONICAL_DECIMAL = /^(0|[1-9]\d*)$/;
 
 interface BossLifecycleConsoleProps {
   network: Network;
@@ -33,92 +41,179 @@ interface LifecycleActionDefinition {
   action: BossLifecycleAction;
   label: string;
   description: string;
-  available: boolean;
-  unavailableReason?: string;
 }
 
 export default function BossLifecycleConsole({ network, subscription, onRefresh }: BossLifecycleConsoleProps) {
   const { address, chainId, isConnected } = useAccount();
+  const targetChainId = getChain(network).id;
+  const { data: observedBlock } = useBlockNumber({ chainId: targetChainId, watch: true });
   const { synapse } = useSynapse();
   const services = useMemo(() => resolveBossServicesManager(synapse), [synapse]);
-  const targetChainId = getChain(network).id;
+  const association = useBossPayRailAssociation({ network, railId: subscription.railId, subscription });
+  const indexQuery = useBossGraphQLQuery({
+    networkOverride: network,
+    queryKey: ["index-status"],
+    query: (client) => client.getIndexStatus(),
+    refetchInterval: 15_000,
+  });
+  const executionGate = useRef(new BossLifecycleExecutionGate()).current;
   const [newFixedBudget, setNewFixedBudget] = useState("");
   const [review, setReview] = useState<BossLifecycleReview | null>(null);
   const [receipt, setReceipt] = useState<BossLifecycleExecutionReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isReadingAuthority, setIsReadingAuthority] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
 
-  const currentContext: BossLifecycleCurrentContext = {
+  const verifiedAssociation = association.state.status === "matched" ? association.state.association : undefined;
+  const associationReady = verifiedAssociation?.active === true;
+  const associationProofKey = verifiedAssociation ? createBossAssociationProofKey(verifiedAssociation) : "unverified";
+  const indexReady = isBossLifecycleIndexFresh(
+    indexQuery.data?.deployment,
+    indexQuery.data?.indexedBlock,
+    observedBlock,
+  );
+  const fixedBudgetReady = CANONICAL_DECIMAL.test(subscription.currentFixedBudget);
+  const walletReady = isConnected && address !== undefined && chainId === targetChainId;
+  const sdkReady = services.status === "available";
+  const canPrepare =
+    walletReady &&
+    sdkReady &&
+    associationReady &&
+    indexReady &&
+    fixedBudgetReady &&
+    !isReadingAuthority &&
+    !isExecuting;
+
+  const directExpectation = {
+    subscriptionId: subscription.subscriptionId,
+    railId: subscription.railId,
+    billingKind: subscription.billingKind,
+    pauseAllowed: subscription.pauseAllowed,
+    token: subscription.token,
+    beneficiary: subscription.beneficiary,
+    resourceKey: subscription.resourceKey,
+  };
+
+  const loadDirectAuthority = async (): Promise<BossLifecycleDirectAuthority> => {
+    if (services.status !== "available") throw new Error(services.reason);
+    const snapshot = await services.manager.get({
+      account: subscription.accountAddress,
+      subscriptionId: subscription.subscriptionId,
+    });
+    return resolveBossLifecycleDirectAuthority(snapshot, directExpectation);
+  };
+
+  const buildCurrentContext = (
+    nowMs: number,
+    direct: BossLifecycleDirectAuthority,
+    indexStatus: { deployment?: string; indexedBlock?: bigint } | undefined = indexQuery.data,
+  ): BossLifecycleCurrentContext => ({
     chainId,
     wallet: address,
     account: subscription.accountAddress,
     subscriptionId: subscription.subscriptionId,
     railId: subscription.railId,
-  };
-  const reviewMismatches = review ? compareBossLifecycleReview(review, currentContext) : [];
-  const walletReady = isConnected && address !== undefined && chainId === targetChainId;
-  const sdkReady = services.status === "available";
-  const canPrepare = walletReady && sdkReady && !isExecuting;
-  const reviewLifetimeMinutes = BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS / 60_000;
+    subscriptionState: direct.subscriptionState,
+    billingKind: direct.billingKind,
+    pauseAllowed: direct.pauseAllowed,
+    requiresAccountRead: subscription.requiresAccountRead,
+    directReadVerified: true,
+    token: direct.token,
+    beneficiary: direct.beneficiary,
+    resourceKey: direct.resourceKey,
+    associationProofKey,
+    indexDeployment: indexStatus?.deployment,
+    indexedBlock: indexStatus?.indexedBlock,
+    observedBlock,
+    currentFixedBudget: direct.currentFixedBudget,
+    nowMs,
+  });
+
+  const reviewedDirectAuthority: BossLifecycleDirectAuthority | undefined = review
+    ? {
+        subscriptionId: review.subscriptionId,
+        railId: review.railId,
+        subscriptionState: review.subscriptionState,
+        billingKind: review.billingKind,
+        pauseAllowed: review.pauseAllowed,
+        token: review.token,
+        beneficiary: review.beneficiary,
+        resourceKey: review.resourceKey,
+        currentFixedBudget: review.currentFixedBudget.toString(),
+        railAssociationValid: true,
+      }
+    : undefined;
+  const reviewMismatches =
+    review && reviewedDirectAuthority
+      ? compareBossLifecycleReview(review, buildCurrentContext(Date.now(), reviewedDirectAuthority))
+      : [];
 
   const actions: LifecycleActionDefinition[] = [
     {
       action: "sync",
       label: "Review capacity sync",
       description: "Prepare one permissionless capacity-resource synchronization call.",
-      available:
-        subscription.billingKind === 1 && ["PENDING_ACTIVATION", "ACTIVE", "PAUSED"].includes(subscription.state),
-      unavailableReason: "Capacity sync is available only for live stream-capacity subscriptions.",
     },
     {
       action: "top-up",
       label: "Review fixed-budget target",
       description:
-        "Prepare one explicit absolute fixed-budget target in token base units. This is not an additive amount.",
-      available: subscription.billingKind === 2 && !["TERMINATING", "ENDED"].includes(subscription.state),
-      unavailableReason: "Fixed-budget top-up is available only for non-terminal metered subscriptions.",
+        "Prepare one explicit new fixed-budget target in token base units. This is an absolute target, not an increment.",
     },
     {
       action: "pause",
       label: "Review pause",
       description: "Prepare one pause request. The SDK and contract enforce signer authority.",
-      available: subscription.state === "ACTIVE" && subscription.pauseAllowed,
-      unavailableReason: subscription.pauseAllowed
-        ? "Pause requires an active subscription."
-        : "The accepted subscription terms do not allow pause.",
     },
     {
       action: "resume",
       label: "Review resume",
       description: "Prepare one resume request from the currently paused service.",
-      available: subscription.state === "PAUSED",
-      unavailableReason: "Resume requires a paused subscription.",
     },
     {
       action: "stop",
       label: "Review stop",
       description:
         "Prepare one Boss-operator stop. This terminates only the add-on and must preserve the base FWSS rail.",
-      available: ["PENDING_ACTIVATION", "ACTIVE", "PAUSED", "EXHAUSTED"].includes(subscription.state),
-      unavailableReason: "Stop is unavailable after termination has begun or completed.",
     },
   ];
 
-  const prepare = (action: BossLifecycleAction) => {
+  const prepare = async (action: BossLifecycleAction) => {
     setError(null);
     setReceipt(null);
+    setIsReadingAuthority(true);
     try {
       if (!address || chainId === undefined) {
         throw new Error("Connect a wallet before preparing an action");
       }
-      const fixedBudget =
-        action === "top-up"
-          ? POSITIVE_DECIMAL.test(newFixedBudget)
-            ? BigInt(newFixedBudget)
-            : (() => {
-                throw new Error("New fixed budget must be a positive canonical decimal integer in token base units");
-              })()
-          : undefined;
+      if (chainId !== targetChainId) {
+        throw new Error(`Wallet chain ${chainId} does not match route chain ${targetChainId}`);
+      }
+      if (services.status !== "available") throw new Error(services.reason);
+      if (!verifiedAssociation || !associationReady) {
+        throw new Error("An exact active D2 Boss-to-Filecoin-Pay association proof is required before review");
+      }
+      if (!indexReady || !indexQuery.data || observedBlock === undefined) {
+        throw new Error("The authenticated Boss index must be current before review");
+      }
+      if (!fixedBudgetReady) {
+        throw new Error("The indexed current fixed budget is not a canonical non-negative decimal integer");
+      }
+
+      const direct = await loadDirectAuthority();
+      if (!isBossLifecycleActionAvailable(action, direct.subscriptionState, direct.billingKind, direct.pauseAllowed)) {
+        throw new Error(
+          `${action} is unavailable for live state ${direct.subscriptionState} and billing kind ${direct.billingKind}`,
+        );
+      }
+
+      let reviewedFixedBudget: bigint | undefined;
+      if (action === "top-up") {
+        if (!POSITIVE_DECIMAL.test(newFixedBudget)) {
+          throw new Error("New fixed budget must be a positive canonical decimal integer in token base units");
+        }
+        reviewedFixedBudget = BigInt(newFixedBudget);
+      }
 
       setReview(
         prepareBossLifecycleReview({
@@ -126,15 +221,30 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
           chainId,
           wallet: address,
           account: subscription.accountAddress,
-          subscriptionId: subscription.subscriptionId,
-          railId: subscription.railId,
-          newFixedBudget: fixedBudget,
+          subscriptionId: direct.subscriptionId,
+          railId: direct.railId,
+          subscriptionState: direct.subscriptionState,
+          billingKind: direct.billingKind,
+          pauseAllowed: direct.pauseAllowed,
+          requiresAccountRead: subscription.requiresAccountRead,
+          directReadVerified: true,
+          token: direct.token,
+          beneficiary: direct.beneficiary,
+          resourceKey: direct.resourceKey,
+          associationProofKey: createBossAssociationProofKey(verifiedAssociation),
+          indexDeployment: indexQuery.data.deployment,
+          indexedBlock: indexQuery.data.indexedBlock,
+          observedBlock,
+          currentFixedBudget: direct.currentFixedBudget,
+          newFixedBudget: reviewedFixedBudget,
           createdAtMs: Date.now(),
         }),
       );
     } catch (cause) {
       setReview(null);
       setError(errorMessage(cause));
+    } finally {
+      setIsReadingAuthority(false);
     }
   };
 
@@ -144,10 +254,15 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
     setError(null);
     setIsExecuting(true);
     try {
-      const nextReceipt = await executeBossLifecycleReview(services.manager, review, {
-        ...currentContext,
-        nowMs: Date.now(),
-      });
+      const [indexResult] = await Promise.all([indexQuery.refetch(), association.refetch()]);
+      if (!indexResult.data || observedBlock === undefined || !reviewedDirectAuthority) {
+        throw new Error("The authenticated Boss authority could not be refreshed before execution");
+      }
+      const nextReceipt = await executionGate.execute(
+        services.manager,
+        review,
+        buildCurrentContext(Date.now(), reviewedDirectAuthority, indexResult.data),
+      );
       setReceipt(nextReceipt);
       setReview(null);
       onRefresh();
@@ -160,16 +275,19 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
 
   return (
     <section className='rounded-xl border bg-background p-5 shadow-sm' aria-labelledby='boss-lifecycle-console-title'>
-      <div>
-        <p className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Wallet console</p>
-        <h2 id='boss-lifecycle-console-title' className='mt-1 text-lg font-semibold'>
-          Manage existing Boss service
-        </h2>
-        <p className='mt-1 text-sm text-muted-foreground'>
-          Every button creates a normalized, frozen review first. Confirmation executes exactly one maintained Synapse
-          SDK call, retains its transaction evidence, and reconciles Boss, Pay, and resource state once afterward.
-          Reviews expire after {reviewLifetimeMinutes} minutes.
-        </p>
+      <div className='flex flex-wrap items-start justify-between gap-4'>
+        <div className='max-w-3xl'>
+          <p className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>Wallet console</p>
+          <h2 id='boss-lifecycle-console-title' className='mt-1 text-lg font-semibold'>
+            Manage existing Boss service
+          </h2>
+          <p className='mt-1 text-sm text-muted-foreground'>
+            Every action performs a current signer-free BossAccount read, then creates a normalized frozen review.
+            Confirmation repeats the direct read, executes exactly one maintained Synapse SDK call, retains exact
+            transaction evidence, and reconciles Boss, Pay, and resource state once afterward.
+          </p>
+        </div>
+        <CustomConnectButton />
       </div>
 
       <div className='mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100'>
@@ -180,6 +298,19 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
           contract-call fallback is provided.
         </p>
       </div>
+
+      {subscription.requiresAccountRead && (
+        <div
+          className='mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100'
+          role='status'
+        >
+          <p className='font-semibold'>Current contract read required</p>
+          <p className='mt-1'>
+            Settlement-driven state can change without another Boss event. This console reads the current subscription
+            directly before review and again before execution; indexed state alone never authorizes the write.
+          </p>
+        </div>
+      )}
 
       {services.status === "unavailable" && (
         <div
@@ -195,9 +326,43 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
         </div>
       )}
 
+      {!associationReady && (
+        <div
+          className='mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100'
+          role='status'
+        >
+          <p className='font-semibold'>Exact active association proof required</p>
+          <p className='mt-1'>Current D2 proof state: {association.state.status}.</p>
+        </div>
+      )}
+
+      {!indexReady && (
+        <div
+          className='mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100'
+          role='status'
+        >
+          <p className='font-semibold'>Authenticated current Boss index required</p>
+          <p className='mt-1'>
+            {indexQuery.isError
+              ? errorMessage(indexQuery.error)
+              : "The selected Boss deployment and route-chain height must be available and at most 20 blocks apart."}
+          </p>
+        </div>
+      )}
+
+      {!fixedBudgetReady && (
+        <p
+          className='mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100'
+          role='alert'
+        >
+          The indexed current fixed budget is malformed. Lifecycle actions remain disabled.
+        </p>
+      )}
+
       {!isConnected && (
         <p className='mt-4 rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground'>
-          Connect a wallet to prepare an action. No read-only service data requires a signer.
+          Connect a wallet above to prepare an action. Read-only service data and direct authority checks remain
+          signer-free.
         </p>
       )}
 
@@ -211,37 +376,53 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
       )}
 
       <div className='mt-5 grid gap-4 lg:grid-cols-2'>
-        {actions.map((definition) => (
-          <div key={definition.action} className='rounded-lg border p-4'>
-            <p className='font-semibold'>{definition.label}</p>
-            <p className='mt-1 text-sm text-muted-foreground'>{definition.description}</p>
-            {definition.action === "top-up" && (
-              <label className='mt-3 block text-sm font-medium'>
-                New fixed budget in token base units (absolute target)
-                <input
-                  className='mt-1 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm'
-                  inputMode='numeric'
-                  value={newFixedBudget}
-                  onChange={(event) => setNewFixedBudget(event.target.value)}
-                  placeholder={subscription.currentFixedBudget}
-                  disabled={isExecuting}
-                />
-              </label>
-            )}
-            <Button
-              className='mt-3'
-              onClick={() => prepare(definition.action)}
-              variant='tertiary'
-              size='compact'
-              disabled={!canPrepare || !definition.available}
-            >
-              {definition.label}
-            </Button>
-            {!definition.available && (
-              <p className='mt-2 text-xs text-muted-foreground'>{definition.unavailableReason}</p>
-            )}
-          </div>
-        ))}
+        {actions.map((definition) => {
+          const indexedActionAvailable = isBossLifecycleActionAvailable(
+            definition.action,
+            subscription.state,
+            subscription.billingKind,
+            subscription.pauseAllowed,
+          );
+          return (
+            <div key={definition.action} className='rounded-lg border p-4'>
+              <p className='font-semibold'>{definition.label}</p>
+              <p className='mt-1 text-sm text-muted-foreground'>{definition.description}</p>
+              {definition.action === "top-up" && (
+                <label className='mt-3 block text-sm font-medium'>
+                  New fixed-budget target in token base units
+                  <input
+                    className='mt-1 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm'
+                    inputMode='numeric'
+                    value={newFixedBudget}
+                    onChange={(event) => setNewFixedBudget(event.target.value)}
+                    placeholder={subscription.currentFixedBudget}
+                    disabled={isReadingAuthority || isExecuting}
+                  />
+                  <span className='mt-1 block text-xs text-muted-foreground'>
+                    Current indexed fixed budget: {subscription.currentFixedBudget}. The direct read is authoritative at
+                    review time.
+                  </span>
+                </label>
+              )}
+              <Button
+                className='mt-3'
+                onClick={() => void prepare(definition.action)}
+                variant='tertiary'
+                size='compact'
+                disabled={!canPrepare || !indexedActionAvailable}
+              >
+                {isReadingAuthority ? "Reading current authority…" : definition.label}
+              </Button>
+              {!indexedActionAvailable && (
+                <p className='mt-2 text-xs text-muted-foreground'>
+                  Unavailable from indexed state {subscription.state}, billing kind {subscription.billingKind}, and
+                  pause authority {subscription.pauseAllowed ? "allowed" : "disallowed"}. A direct read rechecks these
+                  facts before review.
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {review && (
@@ -249,7 +430,10 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
           <div className='flex flex-wrap items-start justify-between gap-3'>
             <div>
               <p className='font-semibold'>Review {review.action}</p>
-              <p className='mt-1'>No transaction has been submitted. Any payload change invalidates this review.</p>
+              <p className='mt-1'>
+                No transaction has been submitted. Any payload, wallet, association, index, or direct-state change
+                invalidates this review.
+              </p>
             </div>
             <code className='max-w-full break-all text-xs'>{review.reviewKey}</code>
           </div>
@@ -259,7 +443,23 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
             <ReviewField label='Boss account' value={review.account} />
             <ReviewField label='Subscription ID' value={review.subscriptionId} />
             <ReviewField label='Rail ID' value={review.railId} />
-            <ReviewField label='New fixed budget' value={review.newFixedBudget?.toString() ?? "Not applicable"} />
+            <ReviewField label='Direct subscription state' value={review.subscriptionState} />
+            <ReviewField label='Billing kind' value={review.billingKind.toString()} />
+            <ReviewField label='Pause allowed' value={review.pauseAllowed ? "Yes" : "No"} />
+            <ReviewField label='Payment token' value={review.token} />
+            <ReviewField label='Beneficiary' value={review.beneficiary} />
+            <ReviewField label='Resource key' value={review.resourceKey} />
+            <ReviewField label='Current direct fixed budget' value={review.currentFixedBudget.toString()} />
+            <ReviewField label='New fixed-budget target' value={review.newFixedBudget?.toString() ?? "None"} />
+            <ReviewField label='Direct account read' value='Verified' />
+            <ReviewField
+              label='Index state authority'
+              value={review.requiresAccountRead ? "Direct read required" : "Event stream current"}
+            />
+            <ReviewField label='Index deployment' value={review.indexDeployment} />
+            <ReviewField label='Indexed block' value={review.indexedBlock.toString()} />
+            <ReviewField label='Observed block' value={review.observedBlock.toString()} />
+            <ReviewField label='Review expires' value={new Date(review.expiresAtMs).toISOString()} />
           </dl>
 
           {reviewMismatches.length > 0 && (
@@ -269,8 +469,8 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
             >
               <p className='font-semibold'>Review invalidated</p>
               <ul className='mt-2 list-disc space-y-1 pl-5 text-xs'>
-                {reviewMismatches.map((mismatch) => (
-                  <li key={mismatch.field}>
+                {reviewMismatches.map((mismatch, index) => (
+                  <li key={`${mismatch.field}-${index}`}>
                     {mismatch.field}: reviewed <code>{mismatch.reviewed}</code>, current <code>{mismatch.current}</code>
                   </li>
                 ))}
@@ -285,7 +485,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
               size='compact'
               disabled={isExecuting || reviewMismatches.length > 0 || services.status !== "available"}
             >
-              {isExecuting ? "Submitting one action…" : `Confirm ${review.action}`}
+              {isExecuting ? "Rechecking authority and submitting…" : `Confirm ${review.action}`}
             </Button>
             <Button onClick={() => setReview(null)} variant='tertiary' size='compact' disabled={isExecuting}>
               Cancel review
@@ -307,9 +507,14 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
         <div className='mt-5 rounded-xl border p-4'>
           <p className='font-semibold'>Action receipt: {receipt.status}</p>
           <p className='mt-1 text-sm text-muted-foreground'>
-            A fresh review is required before any retry. The console never reruns a partial or rejected action
-            automatically.
+            A fresh direct read and review are required before any retry. The console never reruns a partial or rejected
+            action automatically.
           </p>
+          {receipt.error && (
+            <p className='mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100'>
+              {receipt.error}
+            </p>
+          )}
           {receipt.result?.failedStage && (
             <p className='mt-2 text-sm'>Failed SDK stage: {receipt.result.failedStage}</p>
           )}
