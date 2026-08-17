@@ -151,19 +151,14 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       return resource;
     },
     async getSubscription(id) {
-      const subscription = (await client.request<BossSubscriptionResponse>(GET_BOSS_SUBSCRIPTION, { id }))
-        .subscription;
+      const subscription = (await client.request<BossSubscriptionResponse>(GET_BOSS_SUBSCRIPTION, { id })).subscription;
       if (!subscription) {
         return null;
       }
 
       assertIndexedIdentity(subscription.id, id, "Boss subscription id");
       assertIndexedChain(config, subscription.chainId, "Boss subscription");
-      assertIndexedAuthority(
-        subscription.token,
-        config.manifest.dependencies.token,
-        "Boss subscription payment token",
-      );
+      assertIndexedAuthority(subscription.token, config.manifest.dependencies.token, "Boss subscription payment token");
       return subscription;
     },
     async getUsageClaims(subscriptionId, first = 100, skip = 0) {
@@ -196,11 +191,7 @@ export function createBossGraphQLClient(network: Network, environment?: BossPubl
       }
 
       assertIndexedChain(config, association.chainId, "Boss rail association");
-      assertIndexedIdentity(
-        association.subscriptionId,
-        subscriptionId,
-        "Boss rail association subscription id",
-      );
+      assertIndexedIdentity(association.subscriptionId, subscriptionId, "Boss rail association subscription id");
       assertIndexedIdentity(association.railId, railId.toString(), "Boss rail association rail id");
       assertIndexedAuthority(
         association.filecoinPay,
