@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "d3e436242202eccbeacdb0568da59439667b6d70"
+          test "$(git rev-parse HEAD^)" = "5e4f75b103fc2fe3363b4e9cdde43e9c5079a9de"
           test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/d3-exact-head-repair.yml"
 
       - name: Install dependencies
@@ -73,13 +73,14 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit("SDK readiness expression no longer matches reviewed head")
           text = text.replace(old, new, 1)
-          old = '''      {synapseError && (
-        <div className='mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>
-          Synapse initialization failed: {synapseError.message}
-        </div>
-      )}
-
-'''
+          old = "\n".join([
+              '      {synapseError && (',
+              "        <div className='mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100' role='alert'>",
+              '          Synapse initialization failed: {synapseError.message}',
+              '        </div>',
+              '      )}',
+              '',
+          ]) + "\n"
           if text.count(old) != 1:
               raise SystemExit("unsupported Synapse error panel no longer matches reviewed head")
           console.write_text(text.replace(old, "", 1))
