@@ -69,7 +69,7 @@ describe("Boss data-source configuration", () => {
     );
   });
 
-  it("rejects wrong-chain, zero-address, and unknown-contract manifests", () => {
+  it("rejects wrong-chain, zero-address, zero-hash, and unknown-contract manifests", () => {
     const wrongChain = calibrationManifest();
     wrongChain.chainId = 314;
     expectBossError(() => parseBossDeploymentManifest(JSON.stringify(wrongChain), "calibration"), "NETWORK_MISMATCH");
@@ -78,6 +78,12 @@ describe("Boss data-source configuration", () => {
     zeroDependency.dependencies.filecoinPay = ADDRESS("0");
     expect(() => parseBossDeploymentManifest(JSON.stringify(zeroDependency), "calibration")).toThrow(
       BossDataSourceError,
+    );
+
+    const zeroRuntimeHash = calibrationManifest();
+    zeroRuntimeHash.contracts.BossFactory.runtimeCodeHash = HASH("0");
+    expect(() => parseBossDeploymentManifest(JSON.stringify(zeroRuntimeHash), "calibration")).toThrowError(
+      /nonzero bytes32/,
     );
 
     const unknownContract = calibrationManifest() as ReturnType<typeof calibrationManifest> & {

@@ -6,6 +6,7 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 const ZERO_ADDRESS = `0x${"0".repeat(40)}`;
+const ZERO_HASH = `0x${"0".repeat(64)}`;
 
 const REQUIRED_CONTRACTS = [
   "BossFactory",
@@ -251,8 +252,8 @@ function requireAddress(value: unknown, label: string): Address {
 }
 
 function requireHash(value: unknown, label: string): Hex {
-  if (typeof value !== "string" || !HASH.test(value)) {
-    throw invalidManifest(`${label} must be a bytes32 value`);
+  if (typeof value !== "string" || !HASH.test(value) || value.toLowerCase() === ZERO_HASH) {
+    throw invalidManifest(`${label} must be a nonzero bytes32 value`);
   }
   if (value !== value.toLowerCase()) {
     throw invalidManifest(`${label} must use lowercase hexadecimal`);
