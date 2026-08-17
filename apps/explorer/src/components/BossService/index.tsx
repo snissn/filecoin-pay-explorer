@@ -10,6 +10,7 @@ import { AlertCircle, CircleQuestionMark } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useBlockNumber } from "wagmi";
+import BossPayAssociation from "@/components/BossPayAssociation";
 import { getChain } from "@/constants/chains";
 import { useBossGraphQLQuery } from "@/hooks/useBossGraphQLQuery";
 import {
@@ -145,10 +146,11 @@ export default function BossService() {
 
           <BossStatusPanel title='Boss index' status={indexStatus} metadata={indexQuery.data?.deployment} />
           <BossStatusPanel title='Quote freshness' status={quoteStatus} />
+          <BossPayAssociation network={network} railId={subscription.railId} subscription={subscription} />
 
           <BossSectionCard
             title='Subscription identity'
-            description='Exact Boss-indexed identifiers. No generic Filecoin Pay rail is labeled as Boss by this page.'
+            description='Exact Boss-indexed identifiers. No generic Filecoin Pay rail is labeled as Boss without the cross-source proof above.'
           >
             <dl className='grid gap-5 sm:grid-cols-2 lg:grid-cols-3'>
               <BossDetailField label='State' value={<BossStateBadge state={subscription.state} />} />
@@ -161,7 +163,7 @@ export default function BossService() {
               <BossDetailField
                 label='Rail ID'
                 value={subscription.railId}
-                detail='D2 owns verified reciprocal Boss-to-Pay association. This identifier alone is not an association proof.'
+                detail='The cross-source proof validates this rail ID together with every other authority field.'
               />
               <BossDetailField label='Chain ID' value={subscription.chainId} />
             </dl>
