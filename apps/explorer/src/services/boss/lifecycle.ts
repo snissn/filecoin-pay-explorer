@@ -69,7 +69,8 @@ export function resolveBossServicesManager(synapse: unknown): BossServicesResolu
     };
   }
 
-  const missing = REQUIRED_MANAGER_METHODS.filter((method) => typeof synapse.services?.[method] !== "function");
+  const services = synapse.services;
+  const missing = REQUIRED_MANAGER_METHODS.filter((method) => typeof services[method] !== "function");
   if (missing.length > 0) {
     return {
       status: "unavailable",
@@ -77,7 +78,7 @@ export function resolveBossServicesManager(synapse: unknown): BossServicesResolu
     };
   }
 
-  return { status: "available", manager: synapse.services as unknown as BossServicesManagerLike };
+  return { status: "available", manager: services as unknown as BossServicesManagerLike };
 }
 
 export interface PrepareBossLifecycleReviewInput {
@@ -251,10 +252,12 @@ export async function executeBossLifecycleReview(
 }
 
 export function serializeBossLifecycleEvidence(value: unknown): string {
-  return JSON.stringify(
-    value,
-    (_key, nested) => (typeof nested === "bigint" ? nested.toString() : nested),
-    2,
+  return (
+    JSON.stringify(
+      value,
+      (_key, nested) => (typeof nested === "bigint" ? nested.toString() : nested),
+      2,
+    ) ?? "null"
   );
 }
 
