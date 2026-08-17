@@ -28,30 +28,26 @@ export interface BossLifecycleReference {
   subscriptionId: string;
 }
 
-export interface BossLifecycleManagerResult {
-  success?: boolean;
+export interface BossLifecycleTransactionEvidence {
   stage?: string;
-  transactions?: readonly {
-    stage?: string;
-    txHash?: string;
-  }[];
-  error?: {
-    code?: string;
-    message?: string;
-    cause?: unknown;
-  };
-  reconciliation?: unknown;
-  [key: string]: unknown;
+  txHash?: string;
+  receipt?: unknown;
+}
+
+export interface BossLifecycleManagerResult {
+  stage?: string;
+  transactions: readonly BossLifecycleTransactionEvidence[];
+  raw: unknown;
 }
 
 export interface BossServicesManagerLike {
   get(input: BossLifecycleReference): Promise<unknown>;
   reconcile(input: BossLifecycleReference): Promise<unknown>;
-  sync(input: BossLifecycleReference): Promise<BossLifecycleManagerResult>;
-  topUp(input: BossLifecycleReference & { amount: bigint }): Promise<BossLifecycleManagerResult>;
-  pause(input: BossLifecycleReference): Promise<BossLifecycleManagerResult>;
-  resume(input: BossLifecycleReference): Promise<BossLifecycleManagerResult>;
-  stop(input: BossLifecycleReference): Promise<BossLifecycleManagerResult>;
+  sync(input: BossLifecycleReference): Promise<unknown>;
+  topUp(input: BossLifecycleReference & { newFixedBudget: bigint }): Promise<unknown>;
+  pause(input: BossLifecycleReference): Promise<unknown>;
+  resume(input: BossLifecycleReference): Promise<unknown>;
+  stop(input: BossLifecycleReference): Promise<unknown>;
 }
 
 export type BossServicesResolution =
@@ -208,47 +204,110 @@ export async function executeBossLifecycleReview(
   }
 
   const reference = { account: review.account, subscriptionId: review.subscriptionId };
-  let result: BossLifecycleManagerResult | undefined;
+  let rawResult: unknown;
   let executionError: string | undefined;
+  let partialCompletion: BossLifecyclePartialCompletion | undefined;
 
   try {
     switch (review.action) {
       case "sync":
-        result = await manager.sync(reference);
+        rawResult = await manager.sync(reference);
         break;
       case "top-up":
-        result = await manager.topUp({ ...reference, amount: review.amount as bigint });
+        rawResult = await manager.topUp({ ...reference, newFixedBudget: review.amount as bigint });
         break;
       case "pause":
-        result = await manager.pause(reference);
+        rawResult = await manager.pause(reference);
         break;
       case "resume":
-        result = await manager.resume(reference);
+        rawResult = await manager.resume(reference);
         break;
       case "stop":
-        result = await manager.stop(reference);
+        rawResult = await manager.stop(reference);
         break;
     }
   } catch (error) {
-    executionError = errorMessage(error);
+    partialCompletion = normalizePartialCompletion(error);
+    if (!partialCompletion) executionError = errorMessage(error);
   }
 
   const reconciliation = await reconcileAfterExecution(manager, reference);
-  if (executionError !== undefined) {
+  if (partialCompletion) {
     return {
       review,
-      status: "failed",
-      error: executionError,
+      status: "partial",
+      result: {
+        stage: partialCompletion.failedStage,
+        transactions: partialCompletion.completed,
+        raw: partialCompletion.raw,
+      },
+      error: partialCompletion.message,
       reconciliation,
     };
   }
-
+  if (executionError !== undefined) {
+    return { review, status: "failed", error: executionError, reconciliation };
+  }
   return {
     review,
-    status: result?.success === false ? "partial" : "succeeded",
-    result,
+    status: "succeeded",
+    result: normalizeManagerResult(rawResult),
     reconciliation,
   };
+}
+
+interface BossLifecyclePartialCompletion {
+  failedStage?: string;
+  completed: readonly BossLifecycleTransactionEvidence[];
+  message: string;
+  raw: Record<string, unknown>;
+}
+
+function normalizeManagerResult(value: unknown): BossLifecycleManagerResult {
+  if (!isRecord(value)) return { transactions: [], raw: value };
+  const source = Array.isArray(value.transactions)
+    ? value.transactions
+    : Array.isArray(value.completed)
+      ? value.completed
+      : [value];
+  return {
+    stage: stringField(value, "stage"),
+    transactions: normalizeTransactionList(source),
+    raw: value,
+  };
+}
+
+function normalizePartialCompletion(error: unknown): BossLifecyclePartialCompletion | undefined {
+  if (!isRecord(error) || error.name !== "BossServicesPartialCompletionError" || !Array.isArray(error.completed)) {
+    return undefined;
+  }
+  const failedStage = stringField(error, "failedStage");
+  const baseMessage = error instanceof Error ? error.message : "Filecoin Boss operation partially completed";
+  const cause = "cause" in error && error.cause !== undefined ? errorMessage(error.cause) : undefined;
+  return {
+    failedStage,
+    completed: normalizeTransactionList(error.completed),
+    message: cause && cause !== baseMessage ? `${baseMessage}: ${cause}` : baseMessage,
+    raw: { name: error.name, failedStage, message: baseMessage, cause },
+  };
+}
+
+function normalizeTransactionList(values: readonly unknown[]): BossLifecycleTransactionEvidence[] {
+  return values
+    .map((value) => normalizeTransaction(value))
+    .filter((value): value is BossLifecycleTransactionEvidence => value !== null);
+}
+
+function normalizeTransaction(value: unknown): BossLifecycleTransactionEvidence | null {
+  if (!isRecord(value)) return null;
+  const stage = stringField(value, "stage");
+  const txHash = stringField(value, "hash") ?? stringField(value, "txHash");
+  if (stage === undefined && txHash === undefined && !("receipt" in value)) return null;
+  return { stage, txHash, receipt: "receipt" in value ? value.receipt : undefined };
+}
+
+function stringField(value: Record<string, unknown>, field: string): string | undefined {
+  return typeof value[field] === "string" ? value[field] : undefined;
 }
 
 export function serializeBossLifecycleEvidence(value: unknown): string {

@@ -68,7 +68,8 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
     {
       action: "top-up",
       label: "Review top-up",
-      description: "Prepare one explicit account top-up in token base units. No approval or deposit is hidden.",
+      description:
+        "Prepare one explicit new fixed-budget target in token base units. No approval or deposit is hidden.",
       available: subscription.state !== "ENDED",
     },
     {
@@ -104,7 +105,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
           ? POSITIVE_DECIMAL.test(topUpAmount)
             ? BigInt(topUpAmount)
             : (() => {
-                throw new Error("Top-up amount must be a positive canonical decimal integer in token base units");
+                throw new Error("New fixed budget must be a positive canonical decimal integer in token base units");
               })()
           : undefined;
       setReview(
@@ -201,7 +202,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
             <p className='mt-1 text-sm text-muted-foreground'>{definition.description}</p>
             {definition.action === "top-up" && (
               <label className='mt-3 block text-sm font-medium'>
-                Amount in token base units
+                New fixed budget in token base units
                 <input
                   className='mt-1 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm'
                   inputMode='numeric'
@@ -245,7 +246,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
             <ReviewField label='Boss account' value={review.account} />
             <ReviewField label='Subscription ID' value={review.subscriptionId} />
             <ReviewField label='Rail ID' value={review.railId} />
-            <ReviewField label='Amount' value={review.amount?.toString() ?? "None"} />
+            <ReviewField label='New fixed budget' value={review.amount?.toString() ?? "None"} />
           </dl>
 
           {reviewMismatches.length > 0 && (

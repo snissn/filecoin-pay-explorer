@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type BossLifecycleCurrentContext,
   BossLifecycleError,
-  type BossLifecycleManagerResult,
   type BossServicesManagerLike,
   compareBossLifecycleReview,
   executeBossLifecycleReview,
@@ -14,20 +13,19 @@ import {
 const ADDRESS = (digit: string): `0x${string}` => `0x${digit.repeat(40)}`;
 const HASH = (digit: string): `0x${string}` => `0x${digit.repeat(64)}`;
 
+function evidence(stage: string, digit = "f") {
+  return { stage, hash: HASH(digit), receipt: null };
+}
+
 function manager(overrides: Partial<BossServicesManagerLike> = {}) {
-  const result: BossLifecycleManagerResult = {
-    success: true,
-    stage: "complete",
-    transactions: [{ stage: "action", txHash: HASH("f") }],
-  };
   return {
     get: vi.fn(async () => ({ state: "ACTIVE" })),
     reconcile: vi.fn(async () => ({ boss: { state: "ACTIVE" }, pay: { railId: 42n } })),
-    sync: vi.fn(async () => result),
-    topUp: vi.fn(async () => result),
-    pause: vi.fn(async () => result),
-    resume: vi.fn(async () => result),
-    stop: vi.fn(async () => result),
+    sync: vi.fn(async () => evidence("sync")),
+    topUp: vi.fn(async () => evidence("top-up")),
+    pause: vi.fn(async () => evidence("pause")),
+    resume: vi.fn(async () => evidence("resume")),
+    stop: vi.fn(async () => evidence("stop")),
     ...overrides,
   } satisfies BossServicesManagerLike;
 }
@@ -107,6 +105,8 @@ describe("Boss lifecycle review and execution", () => {
     const receipt = await executeBossLifecycleReview(services, review("sync"), current());
 
     expect(receipt.status).toBe("succeeded");
+    expect(receipt.result?.transactions).toEqual([{ stage: "sync", txHash: HASH("f"), receipt: null }]);
+    expect(services.sync).toHaveBeenCalledWith({ account: ADDRESS("2"), subscriptionId: HASH("3") });
     expect(services.sync).toHaveBeenCalledTimes(1);
     expect(services.reconcile).toHaveBeenCalledTimes(1);
     expect(services.topUp).not.toHaveBeenCalled();
@@ -121,7 +121,7 @@ describe("Boss lifecycle review and execution", () => {
     expect(services.topUp).toHaveBeenCalledWith({
       account: ADDRESS("2"),
       subscriptionId: HASH("3"),
-      amount: 100n,
+      newFixedBudget: 100n,
     });
   });
 
@@ -134,18 +134,20 @@ describe("Boss lifecycle review and execution", () => {
     expect(services.reconcile).not.toHaveBeenCalled();
   });
 
-  it("retains partial failure evidence and still reconciles once", async () => {
-    const services = manager({
-      pause: vi.fn(async () => ({
-        success: false,
-        stage: "pause",
-        transactions: [{ stage: "pause", txHash: HASH("a") }],
-        error: { code: "RECEIPT_REVERTED", message: "pause reverted" },
-      })),
+  it("retains exact SDK partial-completion evidence and still reconciles once", async () => {
+    const partial = Object.assign(new Error('Filecoin Boss operation failed at stage "pause".'), {
+      name: "BossServicesPartialCompletionError",
+      failedStage: "pause",
+      completed: [evidence("approve-operator", "a")],
+      cause: new Error("pause reverted"),
     });
+    const services = manager({ pause: vi.fn(async () => Promise.reject(partial)) });
     const receipt = await executeBossLifecycleReview(services, review("pause"), current());
     expect(receipt.status).toBe("partial");
-    expect(receipt.result?.transactions).toHaveLength(1);
+    expect(receipt.error).toContain("pause reverted");
+    expect(receipt.result?.stage).toBe("pause");
+    expect(receipt.result?.transactions).toEqual([{ stage: "approve-operator", txHash: HASH("a"), receipt: null }]);
+    expect(services.pause).toHaveBeenCalledTimes(1);
     expect(services.reconcile).toHaveBeenCalledTimes(1);
   });
 
