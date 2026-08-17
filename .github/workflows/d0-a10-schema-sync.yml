@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "0419b5580084dfee56eae12ba4920cc9ae97fad1"
+          test "$(git rev-parse HEAD^)" = "9fad46754c68444bf93f37df7f09d378edd37419"
           test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/d0-a10-schema-sync.yml"
           test -f .github/scripts/d0_a10_schema_sync.py
 
@@ -43,6 +43,36 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Tighten subscription-fixture selector
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path(".github/scripts/d0_a10_schema_sync.py")
+          text = path.read_text()
+          old = '''replace(
+              "apps/explorer/src/services/boss/association-client.test.ts",
+              '    bossAccount: ADDRESS("a"),\\n    subscriptionId: HASH("b"),',
+              '    accountAddress: ADDRESS("a"),\\n    subscriptionId: HASH("b"),',
+          )'''
+          new = '''target = ROOT / "apps/explorer/src/services/boss/association-client.test.ts"
+          text = target.read_text()
+          anchor = "function subscription(overrides: Record<string, unknown> = {}) {"
+          before, separator, after = text.partition(anchor)
+          if not separator:
+              raise SystemExit("association-client.test.ts: subscription fixture anchor missing")
+          old_fields = '    bossAccount: ADDRESS("a"),\\n    subscriptionId: HASH("b"),'
+          new_fields = '    accountAddress: ADDRESS("a"),\\n    subscriptionId: HASH("b"),'
+          if after.count(old_fields) != 1:
+              raise SystemExit(f"association-client.test.ts: expected one subscription field block, found {after.count(old_fields)}")
+          target.write_text(before + separator + after.replace(old_fields, new_fields, 1))'''
+          if text.count(old) != 1:
+              raise SystemExit("transformer selector block no longer matches exact trigger")
+          path.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Apply bounded D0 schema repair
         run: python .github/scripts/d0_a10_schema_sync.py
