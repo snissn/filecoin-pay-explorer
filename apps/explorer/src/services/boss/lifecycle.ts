@@ -4,11 +4,46 @@ export const SYNAPSE_BOSS_SERVICES_PROVENANCE = {
   commit: "f35aeeb822bb9f95d03a66a51e85ed5f1fdcca02",
 } as const;
 
+export const BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS = 5 * 60 * 1_000;
+
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
 const DECIMAL = /^(0|[1-9]\d*)$/;
+const TRANSACTION_HASH = /^0x[0-9a-fA-F]{64}$/;
+const ACTIONS = new Set<BossLifecycleAction>(["sync", "top-up", "pause", "resume", "stop"]);
+const STAGES = new Set<BossServicesStage>([
+  "deposit",
+  "approve-operator",
+  "deploy-account",
+  "accept-offer",
+  "top-up-fixed-budget",
+  "acknowledge-activation",
+  "activate",
+  "sync",
+  "claim",
+  "top-up",
+  "pause",
+  "resume",
+  "stop",
+  "settle",
+]);
 
 export type BossLifecycleAction = "sync" | "top-up" | "pause" | "resume" | "stop";
+export type BossServicesStage =
+  | "deposit"
+  | "approve-operator"
+  | "deploy-account"
+  | "accept-offer"
+  | "top-up-fixed-budget"
+  | "acknowledge-activation"
+  | "activate"
+  | "sync"
+  | "claim"
+  | "top-up"
+  | "pause"
+  | "resume"
+  | "stop"
+  | "settle";
 
 export type BossLifecycleErrorCode = "INVALID_REVIEW" | "STALE_REVIEW" | "SDK_UNAVAILABLE";
 
@@ -28,30 +63,20 @@ export interface BossLifecycleReference {
   subscriptionId: string;
 }
 
-export interface BossLifecycleManagerResult {
-  success?: boolean;
-  stage?: string;
-  transactions?: readonly {
-    stage?: string;
-    txHash?: string;
-  }[];
-  error?: {
-    code?: string;
-    message?: string;
-    cause?: unknown;
-  };
-  reconciliation?: unknown;
-  [key: string]: unknown;
+export interface BossServicesTransactionEvidenceLike {
+  stage: BossServicesStage;
+  hash: string;
+  receipt: unknown;
 }
 
 export interface BossServicesManagerLike {
   get(input: BossLifecycleReference): Promise<unknown>;
   reconcile(input: BossLifecycleReference): Promise<unknown>;
-  sync(input: BossLifecycleReference): Promise<BossLifecycleManagerResult>;
-  topUp(input: BossLifecycleReference & { amount: bigint }): Promise<BossLifecycleManagerResult>;
-  pause(input: BossLifecycleReference): Promise<BossLifecycleManagerResult>;
-  resume(input: BossLifecycleReference): Promise<BossLifecycleManagerResult>;
-  stop(input: BossLifecycleReference): Promise<BossLifecycleManagerResult>;
+  sync(input: BossLifecycleReference): Promise<BossServicesTransactionEvidenceLike>;
+  topUp(input: BossLifecycleReference & { newFixedBudget: bigint }): Promise<BossServicesTransactionEvidenceLike>;
+  pause(input: BossLifecycleReference): Promise<BossServicesTransactionEvidenceLike>;
+  resume(input: BossLifecycleReference): Promise<BossServicesTransactionEvidenceLike>;
+  stop(input: BossLifecycleReference): Promise<BossServicesTransactionEvidenceLike>;
 }
 
 export type BossServicesResolution =
@@ -88,21 +113,21 @@ export interface PrepareBossLifecycleReviewInput {
   account: string;
   subscriptionId: string;
   railId: string;
-  amount?: bigint;
+  newFixedBudget?: bigint;
   createdAtMs: number;
 }
 
 export interface BossLifecycleReview {
-  schemaVersion: 1;
-  action: BossLifecycleAction;
-  chainId: number;
-  wallet: string;
-  account: string;
-  subscriptionId: string;
-  railId: string;
-  amount?: bigint;
-  createdAtMs: number;
-  reviewKey: string;
+  readonly schemaVersion: 1;
+  readonly action: BossLifecycleAction;
+  readonly chainId: number;
+  readonly wallet: string;
+  readonly account: string;
+  readonly subscriptionId: string;
+  readonly railId: string;
+  readonly newFixedBudget?: bigint;
+  readonly createdAtMs: number;
+  readonly reviewKey: string;
 }
 
 export interface BossLifecycleCurrentContext {
@@ -111,6 +136,7 @@ export interface BossLifecycleCurrentContext {
   account: string;
   subscriptionId: string;
   railId: string;
+  nowMs?: number;
 }
 
 export interface BossLifecycleReviewMismatch {
@@ -120,50 +146,7 @@ export interface BossLifecycleReviewMismatch {
 }
 
 export function prepareBossLifecycleReview(input: PrepareBossLifecycleReviewInput): BossLifecycleReview {
-  if (!Number.isSafeInteger(input.chainId) || input.chainId <= 0) {
-    throw new BossLifecycleError("INVALID_REVIEW", "Chain ID must be a positive safe integer");
-  }
-  if (!Number.isSafeInteger(input.createdAtMs) || input.createdAtMs < 0) {
-    throw new BossLifecycleError("INVALID_REVIEW", "Review timestamp must be a non-negative safe integer");
-  }
-
-  const wallet = normalizeAddress(input.wallet, "Wallet");
-  const account = normalizeAddress(input.account, "Boss account");
-  const subscriptionId = normalizeBytes32(input.subscriptionId, "Subscription ID");
-  const railId = normalizeDecimal(input.railId, "Rail ID");
-
-  if (input.action === "top-up") {
-    if (input.amount === undefined || input.amount <= 0n) {
-      throw new BossLifecycleError("INVALID_REVIEW", "Top-up requires an explicit positive token-base-unit amount");
-    }
-  } else if (input.amount !== undefined) {
-    throw new BossLifecycleError("INVALID_REVIEW", `${input.action} must not carry a payment amount`);
-  }
-
-  const reviewKey = [
-    "boss-lifecycle-review-v1",
-    input.action,
-    input.chainId.toString(),
-    wallet,
-    account,
-    subscriptionId,
-    railId,
-    input.amount?.toString() ?? "none",
-    input.createdAtMs.toString(),
-  ].join(":");
-
-  return {
-    schemaVersion: 1,
-    action: input.action,
-    chainId: input.chainId,
-    wallet,
-    account,
-    subscriptionId,
-    railId,
-    amount: input.amount,
-    createdAtMs: input.createdAtMs,
-    reviewKey,
-  };
+  return Object.freeze(buildReview(input));
 }
 
 export function compareBossLifecycleReview(
@@ -177,6 +160,18 @@ export function compareBossLifecycleReview(
   compare("subscriptionId", review.subscriptionId, normalizeOptionalBytes32(current.subscriptionId), mismatches);
   compare("railId", review.railId, normalizeOptionalDecimal(current.railId), mismatches);
   return mismatches;
+}
+
+export interface BossLifecycleTransactionEvidence {
+  stage: BossServicesStage;
+  txHash: string;
+  receiptStatus?: string;
+  blockNumber?: string;
+}
+
+export interface BossLifecycleManagerResult {
+  transactions: readonly BossLifecycleTransactionEvidence[];
+  failedStage?: BossServicesStage;
 }
 
 export interface BossLifecycleReconciliation {
@@ -198,6 +193,8 @@ export async function executeBossLifecycleReview(
   review: BossLifecycleReview,
   current: BossLifecycleCurrentContext,
 ): Promise<BossLifecycleExecutionReceipt> {
+  validateReviewIntegrity(review, current.nowMs ?? Date.now());
+
   const mismatches = compareBossLifecycleReview(review, current);
   if (mismatches.length > 0) {
     throw new BossLifecycleError(
@@ -209,44 +206,58 @@ export async function executeBossLifecycleReview(
 
   const reference = { account: review.account, subscriptionId: review.subscriptionId };
   let result: BossLifecycleManagerResult | undefined;
+  let status: BossLifecycleExecutionReceipt["status"] = "succeeded";
   let executionError: string | undefined;
 
   try {
+    let transaction: BossServicesTransactionEvidenceLike;
     switch (review.action) {
       case "sync":
-        result = await manager.sync(reference);
+        transaction = await manager.sync(reference);
         break;
       case "top-up":
-        result = await manager.topUp({ ...reference, amount: review.amount as bigint });
+        transaction = await manager.topUp({
+          ...reference,
+          newFixedBudget: review.newFixedBudget as bigint,
+        });
         break;
       case "pause":
-        result = await manager.pause(reference);
+        transaction = await manager.pause(reference);
         break;
       case "resume":
-        result = await manager.resume(reference);
+        transaction = await manager.resume(reference);
         break;
       case "stop":
-        result = await manager.stop(reference);
+        transaction = await manager.stop(reference);
         break;
     }
+    result = { transactions: [normalizeTransaction(transaction)] };
   } catch (error) {
-    executionError = errorMessage(error);
+    if (isPartialCompletion(error)) {
+      try {
+        const transactions = error.completed.map(normalizeTransaction);
+        status = transactions.length > 0 ? "partial" : "failed";
+        result = {
+          transactions,
+          failedStage: normalizeStage(error.failedStage, "failed stage"),
+        };
+        executionError = errorMessage(error);
+      } catch (evidenceError) {
+        status = "failed";
+        executionError = `${errorMessage(error)} Invalid completed transaction evidence: ${errorMessage(evidenceError)}`;
+      }
+    } else {
+      status = "failed";
+      executionError = errorMessage(error);
+    }
   }
 
   const reconciliation = await reconcileAfterExecution(manager, reference);
-  if (executionError !== undefined) {
-    return {
-      review,
-      status: "failed",
-      error: executionError,
-      reconciliation,
-    };
-  }
-
   return {
     review,
-    status: result?.success === false ? "partial" : "succeeded",
+    status,
     result,
+    error: executionError,
     reconciliation,
   };
 }
@@ -255,6 +266,94 @@ export function serializeBossLifecycleEvidence(value: unknown): string {
   return (
     JSON.stringify(value, (_key, nested) => (typeof nested === "bigint" ? nested.toString() : nested), 2) ?? "null"
   );
+}
+
+function buildReview(input: PrepareBossLifecycleReviewInput): BossLifecycleReview {
+  if (!ACTIONS.has(input.action)) {
+    throw new BossLifecycleError("INVALID_REVIEW", "Unsupported Boss lifecycle action");
+  }
+  if (!Number.isSafeInteger(input.chainId) || input.chainId <= 0) {
+    throw new BossLifecycleError("INVALID_REVIEW", "Chain ID must be a positive safe integer");
+  }
+  if (!Number.isSafeInteger(input.createdAtMs) || input.createdAtMs < 0) {
+    throw new BossLifecycleError("INVALID_REVIEW", "Review timestamp must be a non-negative safe integer");
+  }
+
+  const wallet = normalizeAddress(input.wallet, "Wallet");
+  const account = normalizeAddress(input.account, "Boss account");
+  const subscriptionId = normalizeBytes32(input.subscriptionId, "Subscription ID");
+  const railId = normalizeDecimal(input.railId, "Rail ID");
+
+  if (input.action === "top-up") {
+    if (input.newFixedBudget === undefined || input.newFixedBudget <= 0n) {
+      throw new BossLifecycleError(
+        "INVALID_REVIEW",
+        "Top-up requires an explicit positive absolute fixed-budget target in token base units",
+      );
+    }
+  } else if (input.newFixedBudget !== undefined) {
+    throw new BossLifecycleError("INVALID_REVIEW", `${input.action} must not carry a fixed-budget target`);
+  }
+
+  const reviewKey = [
+    "boss-lifecycle-review-v1",
+    input.action,
+    input.chainId.toString(),
+    wallet,
+    account,
+    subscriptionId,
+    railId,
+    input.newFixedBudget?.toString() ?? "none",
+    input.createdAtMs.toString(),
+  ].join(":");
+
+  return {
+    schemaVersion: 1,
+    action: input.action,
+    chainId: input.chainId,
+    wallet,
+    account,
+    subscriptionId,
+    railId,
+    newFixedBudget: input.newFixedBudget,
+    createdAtMs: input.createdAtMs,
+    reviewKey,
+  };
+}
+
+function validateReviewIntegrity(review: BossLifecycleReview, nowMs: number): void {
+  if (!isRecord(review) || review.schemaVersion !== 1) {
+    throw new BossLifecycleError("INVALID_REVIEW", "Unsupported Boss lifecycle review schema");
+  }
+  if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
+    throw new BossLifecycleError("INVALID_REVIEW", "Current review-validation timestamp is invalid");
+  }
+
+  const rebuilt = buildReview({
+    action: review.action,
+    chainId: review.chainId,
+    wallet: review.wallet,
+    account: review.account,
+    subscriptionId: review.subscriptionId,
+    railId: review.railId,
+    newFixedBudget: review.newFixedBudget,
+    createdAtMs: review.createdAtMs,
+  });
+  if (review.reviewKey !== rebuilt.reviewKey) {
+    throw new BossLifecycleError("INVALID_REVIEW", "The review payload changed after confirmation", [
+      `expected=${rebuilt.reviewKey}`,
+      `received=${review.reviewKey}`,
+    ]);
+  }
+
+  const age = nowMs - review.createdAtMs;
+  if (age < 0 || age > BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS) {
+    throw new BossLifecycleError(
+      "STALE_REVIEW",
+      "The lifecycle review expired; prepare a fresh review before submitting",
+      [`ageMs=${age}`, `maximumAgeMs=${BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS}`],
+    );
+  }
 }
 
 async function reconcileAfterExecution(
@@ -268,15 +367,62 @@ async function reconcileAfterExecution(
   }
 }
 
+function normalizeTransaction(value: BossServicesTransactionEvidenceLike): BossLifecycleTransactionEvidence {
+  if (!isRecord(value)) {
+    throw new Error("Synapse.services returned malformed transaction evidence");
+  }
+  const stage = normalizeStage(value.stage, "transaction stage");
+  if (typeof value.hash !== "string" || !TRANSACTION_HASH.test(value.hash)) {
+    throw new Error("Synapse.services returned an invalid transaction hash");
+  }
+
+  const evidence: BossLifecycleTransactionEvidence = {
+    stage,
+    txHash: value.hash.toLowerCase(),
+  };
+  if (isRecord(value.receipt)) {
+    const status = scalarString(value.receipt.status);
+    const blockNumber = scalarString(value.receipt.blockNumber);
+    if (status !== undefined) evidence.receiptStatus = status;
+    if (blockNumber !== undefined) evidence.blockNumber = blockNumber;
+  }
+  return evidence;
+}
+
+function normalizeStage(value: unknown, label: string): BossServicesStage {
+  if (typeof value !== "string" || !STAGES.has(value as BossServicesStage)) {
+    throw new Error(`Synapse.services returned an invalid ${label}`);
+  }
+  return value as BossServicesStage;
+}
+
+function isPartialCompletion(value: unknown): value is Error & {
+  readonly failedStage: BossServicesStage;
+  readonly completed: readonly BossServicesTransactionEvidenceLike[];
+} {
+  return (
+    value instanceof Error &&
+    value.name === "BossServicesPartialCompletionError" &&
+    isRecord(value) &&
+    Array.isArray(value.completed) &&
+    typeof value.failedStage === "string"
+  );
+}
+
+function scalarString(value: unknown): string | undefined {
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value.toString();
+  if (typeof value === "string" && DECIMAL.test(value)) return value;
+  return undefined;
+}
+
 function compare(
   field: BossLifecycleReviewMismatch["field"],
   reviewed: string,
   current: string,
   mismatches: BossLifecycleReviewMismatch[],
 ): void {
-  if (reviewed !== current) {
-    mismatches.push({ field, reviewed, current });
-  }
+  if (reviewed !== current) mismatches.push({ field, reviewed, current });
 }
 
 function normalizeAddress(value: string, label: string): string {

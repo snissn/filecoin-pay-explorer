@@ -68,9 +68,8 @@ export default function BossServices() {
           <BossStatusPanel title='Boss index' status={indexHealth} metadata={indexQuery.data?.deployment} />
 
           <div className='rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100'>
-            This view never infers assurance, dependency, data-access, or Boss-to-Pay association authority from
-            provider labels, adapter addresses, or rail IDs. Those fields remain explicitly unavailable until their
-            authoritative indexed facts exist.
+            Accepted assurance, dependency, and access commitments come only from authenticated Boss facts. A generic
+            Filecoin Pay rail still receives a Boss label only through the separate reciprocal proof.
           </div>
 
           {subscriptionsQuery.isLoading && <LoadingStateCard message='Loading Boss services...' />}
@@ -120,6 +119,11 @@ export default function BossServices() {
                       <tr key={subscription.id} className='align-top hover:bg-muted/20'>
                         <td className='px-4 py-4'>
                           <BossStateBadge state={subscription.state} />
+                          {subscription.requiresAccountRead && (
+                            <p className='mt-1 text-xs text-amber-700 dark:text-amber-300'>
+                              Direct account read required
+                            </p>
+                          )}
                         </td>
                         <td className='px-4 py-4'>
                           <code className='font-medium' title={subscription.subscriptionId}>
@@ -135,11 +139,11 @@ export default function BossServices() {
                           </code>
                         </td>
                         <td className='px-4 py-4 font-medium'>
-                          {formatBossInteger(subscription.ratePerEpoch)}
+                          {formatBossInteger(subscription.acceptedRatePerEpoch)}
                           <p className='mt-1 text-xs font-normal text-muted-foreground'>token base units</p>
                         </td>
                         <td className='px-4 py-4 font-medium'>
-                          {formatBossInteger(subscription.fixedBudget)}
+                          {formatBossInteger(subscription.currentFixedBudget)}
                           <p className='mt-1 text-xs font-normal text-muted-foreground'>token base units</p>
                         </td>
                         <td className='px-4 py-4 font-medium'>

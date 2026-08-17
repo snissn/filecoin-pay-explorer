@@ -7,6 +7,7 @@ import { useAccount } from "wagmi";
 import { getChain } from "@/constants/chains";
 import useSynapse from "@/hooks/useSynapse";
 import {
+  BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS,
   type BossLifecycleAction,
   type BossLifecycleCurrentContext,
   type BossLifecycleExecutionReceipt,
@@ -33,6 +34,7 @@ interface LifecycleActionDefinition {
   label: string;
   description: string;
   available: boolean;
+  unavailableReason?: string;
 }
 
 export default function BossLifecycleConsole({ network, subscription, onRefresh }: BossLifecycleConsoleProps) {
@@ -40,7 +42,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
   const { synapse } = useSynapse();
   const services = useMemo(() => resolveBossServicesManager(synapse), [synapse]);
   const targetChainId = getChain(network).id;
-  const [topUpAmount, setTopUpAmount] = useState("");
+  const [newFixedBudget, setNewFixedBudget] = useState("");
   const [review, setReview] = useState<BossLifecycleReview | null>(null);
   const [receipt, setReceipt] = useState<BossLifecycleExecutionReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
   const currentContext: BossLifecycleCurrentContext = {
     chainId,
     wallet: address,
-    account: subscription.bossAccount,
+    account: subscription.accountAddress,
     subscriptionId: subscription.subscriptionId,
     railId: subscription.railId,
   };
@@ -57,38 +59,48 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
   const walletReady = isConnected && address !== undefined && chainId === targetChainId;
   const sdkReady = services.status === "available";
   const canPrepare = walletReady && sdkReady && !isExecuting;
+  const reviewLifetimeMinutes = BOSS_LIFECYCLE_REVIEW_MAX_AGE_MS / 60_000;
 
   const actions: LifecycleActionDefinition[] = [
     {
       action: "sync",
       label: "Review capacity sync",
-      description: "Prepare one permissionless resource-state synchronization call.",
-      available: subscription.state !== "ENDED",
+      description: "Prepare one permissionless capacity-resource synchronization call.",
+      available:
+        subscription.billingKind === 1 && ["PENDING_ACTIVATION", "ACTIVE", "PAUSED"].includes(subscription.state),
+      unavailableReason: "Capacity sync is available only for live stream-capacity subscriptions.",
     },
     {
       action: "top-up",
-      label: "Review top-up",
-      description: "Prepare one explicit account top-up in token base units. No approval or deposit is hidden.",
-      available: subscription.state !== "ENDED",
+      label: "Review fixed-budget target",
+      description:
+        "Prepare one explicit absolute fixed-budget target in token base units. This is not an additive amount.",
+      available: subscription.billingKind === 2 && !["TERMINATING", "ENDED"].includes(subscription.state),
+      unavailableReason: "Fixed-budget top-up is available only for non-terminal metered subscriptions.",
     },
     {
       action: "pause",
       label: "Review pause",
       description: "Prepare one pause request. The SDK and contract enforce signer authority.",
-      available: subscription.state === "ACTIVE",
+      available: subscription.state === "ACTIVE" && subscription.pauseAllowed,
+      unavailableReason: subscription.pauseAllowed
+        ? "Pause requires an active subscription."
+        : "The accepted subscription terms do not allow pause.",
     },
     {
       action: "resume",
       label: "Review resume",
       description: "Prepare one resume request from the currently paused service.",
       available: subscription.state === "PAUSED",
+      unavailableReason: "Resume requires a paused subscription.",
     },
     {
       action: "stop",
       label: "Review stop",
       description:
         "Prepare one Boss-operator stop. This terminates only the add-on and must preserve the base FWSS rail.",
-      available: subscription.state !== "ENDED",
+      available: ["PENDING_ACTIVATION", "ACTIVE", "PAUSED", "EXHAUSTED"].includes(subscription.state),
+      unavailableReason: "Stop is unavailable after termination has begun or completed.",
     },
   ];
 
@@ -99,23 +111,24 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
       if (!address || chainId === undefined) {
         throw new Error("Connect a wallet before preparing an action");
       }
-      const amount =
+      const fixedBudget =
         action === "top-up"
-          ? POSITIVE_DECIMAL.test(topUpAmount)
-            ? BigInt(topUpAmount)
+          ? POSITIVE_DECIMAL.test(newFixedBudget)
+            ? BigInt(newFixedBudget)
             : (() => {
-                throw new Error("Top-up amount must be a positive canonical decimal integer in token base units");
+                throw new Error("New fixed budget must be a positive canonical decimal integer in token base units");
               })()
           : undefined;
+
       setReview(
         prepareBossLifecycleReview({
           action,
           chainId,
           wallet: address,
-          account: subscription.bossAccount,
+          account: subscription.accountAddress,
           subscriptionId: subscription.subscriptionId,
           railId: subscription.railId,
-          amount,
+          newFixedBudget: fixedBudget,
           createdAtMs: Date.now(),
         }),
       );
@@ -126,13 +139,15 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
   };
 
   const execute = async () => {
-    if (!review || services.status !== "available") {
-      return;
-    }
+    if (!review || services.status !== "available") return;
+
     setError(null);
     setIsExecuting(true);
     try {
-      const nextReceipt = await executeBossLifecycleReview(services.manager, review, currentContext);
+      const nextReceipt = await executeBossLifecycleReview(services.manager, review, {
+        ...currentContext,
+        nowMs: Date.now(),
+      });
       setReceipt(nextReceipt);
       setReview(null);
       onRefresh();
@@ -151,17 +166,18 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
           Manage existing Boss service
         </h2>
         <p className='mt-1 text-sm text-muted-foreground'>
-          Every button creates an immutable review first. Confirmation executes exactly one maintained Synapse SDK call,
-          records its transaction stages, and reconciles Boss/Pay/resource state afterward.
+          Every button creates a normalized, frozen review first. Confirmation executes exactly one maintained Synapse
+          SDK call, retains its transaction evidence, and reconciles Boss, Pay, and resource state once afterward.
+          Reviews expire after {reviewLifetimeMinutes} minutes.
         </p>
       </div>
 
       <div className='mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100'>
         <p className='font-semibold'>New-service attach remains fail-closed</p>
         <p className='mt-1'>
-          The current authenticated Explorer schema does not expose the complete accepted offer, caps, assurance,
-          dependency, and access-grant authority needed for safe attach review. No raw JSON or bespoke contract-call
-          fallback is provided.
+          Safe attach requires the complete provider-signed offer, acceptance calldata, pricing/resource payloads, and
+          signer evidence. The read index does not reconstruct that executable payload, so no raw JSON or bespoke
+          contract-call fallback is provided.
         </p>
       </div>
 
@@ -201,13 +217,13 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
             <p className='mt-1 text-sm text-muted-foreground'>{definition.description}</p>
             {definition.action === "top-up" && (
               <label className='mt-3 block text-sm font-medium'>
-                Amount in token base units
+                New fixed budget in token base units (absolute target)
                 <input
                   className='mt-1 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm'
                   inputMode='numeric'
-                  value={topUpAmount}
-                  onChange={(event) => setTopUpAmount(event.target.value)}
-                  placeholder='1000000'
+                  value={newFixedBudget}
+                  onChange={(event) => setNewFixedBudget(event.target.value)}
+                  placeholder={subscription.currentFixedBudget}
                   disabled={isExecuting}
                 />
               </label>
@@ -222,9 +238,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
               {definition.label}
             </Button>
             {!definition.available && (
-              <p className='mt-2 text-xs text-muted-foreground'>
-                Unavailable from current indexed state {subscription.state}.
-              </p>
+              <p className='mt-2 text-xs text-muted-foreground'>{definition.unavailableReason}</p>
             )}
           </div>
         ))}
@@ -235,7 +249,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
           <div className='flex flex-wrap items-start justify-between gap-3'>
             <div>
               <p className='font-semibold'>Review {review.action}</p>
-              <p className='mt-1'>No transaction has been submitted.</p>
+              <p className='mt-1'>No transaction has been submitted. Any payload change invalidates this review.</p>
             </div>
             <code className='max-w-full break-all text-xs'>{review.reviewKey}</code>
           </div>
@@ -245,7 +259,7 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
             <ReviewField label='Boss account' value={review.account} />
             <ReviewField label='Subscription ID' value={review.subscriptionId} />
             <ReviewField label='Rail ID' value={review.railId} />
-            <ReviewField label='Amount' value={review.amount?.toString() ?? "None"} />
+            <ReviewField label='New fixed budget' value={review.newFixedBudget?.toString() ?? "Not applicable"} />
           </dl>
 
           {reviewMismatches.length > 0 && (
@@ -296,17 +310,22 @@ export default function BossLifecycleConsole({ network, subscription, onRefresh 
             A fresh review is required before any retry. The console never reruns a partial or rejected action
             automatically.
           </p>
+          {receipt.result?.failedStage && (
+            <p className='mt-2 text-sm'>Failed SDK stage: {receipt.result.failedStage}</p>
+          )}
           {receipt.result?.transactions && receipt.result.transactions.length > 0 && (
             <ol className='mt-4 space-y-2'>
               {receipt.result.transactions.map((transaction, index) => (
                 <li
-                  key={`${transaction.stage ?? "stage"}-${transaction.txHash ?? index}`}
+                  key={`${transaction.stage}-${transaction.txHash}-${index}`}
                   className='rounded-lg border p-3 text-sm'
                 >
-                  <p className='font-medium'>{transaction.stage ?? `Stage ${index + 1}`}</p>
-                  <code className='mt-1 block break-all text-xs'>
-                    {transaction.txHash ?? "No transaction hash returned"}
-                  </code>
+                  <p className='font-medium'>{transaction.stage}</p>
+                  <code className='mt-1 block break-all text-xs'>{transaction.txHash}</code>
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    Receipt status {transaction.receiptStatus ?? "unavailable"}
+                    {transaction.blockNumber ? ` · block ${transaction.blockNumber}` : ""}
+                  </p>
                 </li>
               ))}
             </ol>

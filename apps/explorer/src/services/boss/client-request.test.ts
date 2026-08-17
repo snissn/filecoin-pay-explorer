@@ -91,7 +91,7 @@ function subscription(overrides: Record<string, unknown> = {}) {
   return {
     id: "subscription-1",
     chainId: CHAIN_ID,
-    bossAccount: BOSS_ACCOUNT,
+    accountAddress: BOSS_ACCOUNT,
     subscriptionId: SUBSCRIPTION_ID,
     resourceKey: RESOURCE_KEY,
     token: ADDRESS("5"),
@@ -174,7 +174,7 @@ describe("Boss GraphQL client", () => {
     const client = createBossGraphQLClient("calibration", environment());
     await expect(
       client.getResourceForSubscription({
-        bossAccount: BOSS_ACCOUNT,
+        accountAddress: BOSS_ACCOUNT,
         resourceKey: RESOURCE_KEY,
         subscriptionId: SUBSCRIPTION_ID,
       }),
@@ -183,7 +183,7 @@ describe("Boss GraphQL client", () => {
     mocks.request.mockResolvedValueOnce({ resourceSubscriptions: [resource({ resourceKey: HASH("e") })] });
     await expect(
       client.getResourceForSubscription({
-        bossAccount: BOSS_ACCOUNT,
+        accountAddress: BOSS_ACCOUNT,
         resourceKey: RESOURCE_KEY,
         subscriptionId: SUBSCRIPTION_ID,
       }),
