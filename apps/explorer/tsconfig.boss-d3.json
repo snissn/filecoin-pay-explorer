@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "react", "react-dom"]
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/app/[network]/services/[id]/page.tsx",
+    "src/components/BossLifecycleConsole/**/*.tsx",
+    "src/components/BossPayAssociation/**/*.tsx",
+    "src/components/BossService/**/*.tsx",
+    "src/components/BossServices/**/*.tsx",
+    "src/components/UserConsole/ConsoleProviders.tsx",
+    "src/context/Synapse.tsx",
+    "src/context/types.ts",
+    "src/hooks/useBossGraphQLQuery.ts",
+    "src/hooks/useBossPayRailAssociation.ts",
+    "src/hooks/useGraphQLQuery.ts",
+    "src/hooks/useSynapse.ts",
+    "src/services/boss/**/*.ts",
+    "src/types/svg.d.ts"
+  ],
+  "exclude": ["node_modules", ".next"]
+}

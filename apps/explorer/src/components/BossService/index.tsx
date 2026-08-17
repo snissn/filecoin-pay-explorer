@@ -10,6 +10,7 @@ import { AlertCircle, CircleQuestionMark } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useBlockNumber } from "wagmi";
+import BossLifecycleConsole from "@/components/BossLifecycleConsole";
 import BossPayAssociation from "@/components/BossPayAssociation";
 import { getChain } from "@/constants/chains";
 import { useBossGraphQLQuery } from "@/hooks/useBossGraphQLQuery";
@@ -147,6 +148,7 @@ export default function BossService() {
           <BossStatusPanel title='Boss index' status={indexStatus} metadata={indexQuery.data?.deployment} />
           <BossStatusPanel title='Quote freshness' status={quoteStatus} />
           <BossPayAssociation network={network} railId={subscription.railId} subscription={subscription} />
+          <BossLifecycleConsole network={network} subscription={subscription} onRefresh={refresh} />
 
           <BossSectionCard
             title='Subscription identity'
