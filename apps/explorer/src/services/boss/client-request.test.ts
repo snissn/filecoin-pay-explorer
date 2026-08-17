@@ -17,6 +17,8 @@ const ADDRESS = (digit: string) => `0x${digit.repeat(40)}`;
 const HASH = (digit: string) => `0x${digit.repeat(64)}`;
 const CHAIN_ID = "314159";
 const SUBSCRIPTION_ID = HASH("b");
+const RESOURCE_KEY = HASH("d");
+const BOSS_ACCOUNT = ADDRESS("a");
 
 function environment() {
   const deployment = (digit: string, block: number) => ({
@@ -77,6 +79,10 @@ function resource(overrides: Record<string, unknown> = {}) {
   return {
     id: "resource-1",
     chainId: CHAIN_ID,
+    bossAccount: BOSS_ACCOUNT,
+    resourceKey: RESOURCE_KEY,
+    subscriptionId: SUBSCRIPTION_ID,
+    active: true,
     ...overrides,
   };
 }
@@ -85,6 +91,9 @@ function subscription(overrides: Record<string, unknown> = {}) {
   return {
     id: "subscription-1",
     chainId: CHAIN_ID,
+    bossAccount: BOSS_ACCOUNT,
+    subscriptionId: SUBSCRIPTION_ID,
+    resourceKey: RESOURCE_KEY,
     token: ADDRESS("5"),
     ...overrides,
   };
@@ -126,6 +135,59 @@ describe("Boss GraphQL client", () => {
       subscriptionId: SUBSCRIPTION_ID,
       railId: "9007199254740993",
     });
+  });
+
+  it("lists one bounded page and validates every subscription against the manifest", async () => {
+    const valid = subscription();
+    mocks.request.mockResolvedValueOnce({ subscriptions: [valid] });
+
+    const client = createBossGraphQLClient("calibration", environment());
+    await expect(client.listSubscriptions()).resolves.toEqual([valid]);
+    expect(mocks.request).toHaveBeenCalledWith(expect.any(String), { first: 100, skip: 0 });
+
+    mocks.request.mockResolvedValueOnce({ subscriptions: [subscription({ token: ADDRESS("f") })] });
+    await expect(client.listSubscriptions(25, 50)).rejects.toMatchObject({
+      code: "NETWORK_MISMATCH",
+    } satisfies Partial<BossDataSourceError>);
+  });
+
+  it("rejects duplicate list entities and unbounded pagination", async () => {
+    const duplicate = subscription();
+    mocks.request.mockResolvedValueOnce({ subscriptions: [duplicate, duplicate] });
+
+    const client = createBossGraphQLClient("calibration", environment());
+    await expect(client.listSubscriptions()).rejects.toMatchObject({
+      code: "INDEXING_ERROR",
+    } satisfies Partial<BossDataSourceError>);
+    await expect(client.listSubscriptions(101)).rejects.toMatchObject({
+      code: "INVALID_QUERY",
+    } satisfies Partial<BossDataSourceError>);
+    await expect(client.getUsageClaims(SUBSCRIPTION_ID, 10, -1)).rejects.toMatchObject({
+      code: "INVALID_QUERY",
+    } satisfies Partial<BossDataSourceError>);
+  });
+
+  it("loads one exact resource association for the selected subscription", async () => {
+    const validResource = resource();
+    mocks.request.mockResolvedValueOnce({ resourceSubscriptions: [validResource] });
+
+    const client = createBossGraphQLClient("calibration", environment());
+    await expect(
+      client.getResourceForSubscription({
+        bossAccount: BOSS_ACCOUNT,
+        resourceKey: RESOURCE_KEY,
+        subscriptionId: SUBSCRIPTION_ID,
+      }),
+    ).resolves.toBe(validResource);
+
+    mocks.request.mockResolvedValueOnce({ resourceSubscriptions: [resource({ resourceKey: HASH("e") })] });
+    await expect(
+      client.getResourceForSubscription({
+        bossAccount: BOSS_ACCOUNT,
+        resourceKey: RESOURCE_KEY,
+        subscriptionId: SUBSCRIPTION_ID,
+      }),
+    ).rejects.toMatchObject({ code: "INDEXING_ERROR" });
   });
 
   it("accepts entities only when their chain and deployment authority match the manifest", async () => {

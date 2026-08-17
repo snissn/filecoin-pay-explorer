@@ -3,6 +3,7 @@ export type BossDataSourceErrorCode =
   | "INVALID_ENDPOINT"
   | "MISSING_MANIFEST"
   | "INVALID_MANIFEST"
+  | "INVALID_QUERY"
   | "NETWORK_MISMATCH"
   | "INDEXING_ERROR"
   | "INDEX_LAG";
