@@ -6,12 +6,19 @@ on:
       - "apps/explorer/.env.example"
       - "apps/explorer/README.md"
       - "apps/explorer/tsconfig.boss-d0.json"
+      - "apps/explorer/tsconfig.boss-d1.json"
+      - "apps/explorer/tsconfig.boss-d2.json"
+      - "apps/explorer/src/components/BossPayAssociation/**"
+      - "apps/explorer/src/components/BossService/**"
+      - "apps/explorer/src/components/BossServices/**"
       - "apps/explorer/src/hooks/useBossGraphQLQuery.ts"
+      - "apps/explorer/src/hooks/useBossPayRailAssociation.ts"
       - "apps/explorer/src/services/boss/**"
       - "packages/types/README.md"
       - "packages/types/boss-codegen.yml"
       - "packages/types/package.json"
       - "packages/types/schemas/boss.schema.graphql"
+      - "packages/types/scripts/validate-boss-client-schema.mjs"
       - "packages/types/src/boss.ts"
       - ".github/workflows/boss-explorer-d0.yml"
   workflow_dispatch:
@@ -27,20 +34,20 @@ jobs:
   qualify:
     name: D0 data substrate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           version: 9.15.2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -48,16 +55,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify exact merged A10 client authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            https://raw.githubusercontent.com/snissn/filecoin-boss/43786a88c726e85a24988d90c234eae220e58686/packages/subgraph/schema.graphql \
+            --output /tmp/a10.schema.graphql
+          echo "c259c38ffe378115cd843c687a422b0297c0c62940aa6878666439eafbb287ee  /tmp/a10.schema.graphql" | sha256sum --check
+          node packages/types/scripts/validate-boss-client-schema.mjs /tmp/a10.schema.graphql
+
       - name: Generate and build distinct Boss types
         run: pnpm --filter @filecoin-pay/types build
 
       - name: Run focused Boss tests
         run: pnpm --filter @filecoin-pay/explorer test -- src/services/boss
 
-      - name: Type check Boss packages
+      - name: Type check Boss consumers
+        shell: bash
         run: |
+          set -euo pipefail
           pnpm --filter @filecoin-pay/types type-check
           pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d0.json --noEmit
+          pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d1.json --noEmit
+          pnpm --filter @filecoin-pay/explorer exec tsc --project tsconfig.boss-d2.json --noEmit
 
       - name: Build monorepo
         run: pnpm build
@@ -65,11 +86,18 @@ jobs:
           NEXT_PUBLIC_SUBGRAPH_URL_MAINNET: https://placeholder.invalid/mainnet
           NEXT_PUBLIC_SUBGRAPH_URL_CALIBRATION: https://placeholder.invalid/calibration
 
-      - name: Check changed-source formatting and lint
+      - name: Check Boss source formatting and lint
         run: >-
           pnpm exec biome ci
           apps/explorer/tsconfig.boss-d0.json
+          apps/explorer/tsconfig.boss-d1.json
+          apps/explorer/tsconfig.boss-d2.json
+          apps/explorer/src/components/BossPayAssociation
+          apps/explorer/src/components/BossService
+          apps/explorer/src/components/BossServices
           apps/explorer/src/hooks/useBossGraphQLQuery.ts
+          apps/explorer/src/hooks/useBossPayRailAssociation.ts
           apps/explorer/src/services/boss
           packages/types/src/boss.ts
           packages/types/package.json
+          packages/types/scripts/validate-boss-client-schema.mjs

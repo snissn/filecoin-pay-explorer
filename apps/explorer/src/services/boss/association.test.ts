@@ -53,11 +53,10 @@ function bossAssociation(overrides: Partial<RailSubscription> = {}): RailSubscri
     payer: ADDRESS("c"),
     payee: ADDRESS("d"),
     operator: ADDRESS("a"),
-    validator: ADDRESS("e"),
     token: ADDRESS("5"),
     active: true,
-    transactionHash: HASH("f"),
-    blockNumber: "120",
+    createdBlock: "120",
+    createdTransaction: HASH("f"),
     ...overrides,
   };
 }
@@ -67,30 +66,57 @@ function bossSubscription(overrides: Partial<Subscription> = {}): Subscription {
     __typename: "Subscription",
     id: "subscription-entity",
     chainId: "314159",
-    bossAccount: ADDRESS("a"),
+    accountAddress: ADDRESS("a"),
     subscriptionId: HASH("b"),
-    railId: "42",
+    offerHash: HASH("1"),
     resourceKey: HASH("c"),
-    provider: ADDRESS("f"),
+    railId: "42",
     beneficiary: ADDRESS("d"),
     token: ADDRESS("5"),
+    provider: ADDRESS("f"),
+    reporter: ADDRESS("e"),
     resourceAdapter: ADDRESS("7"),
     pricingAdapter: ADDRESS("8"),
-    state: "ACTIVE",
-    ratePerEpoch: "10",
-    fixedBudget: "100",
+    resourceDataHash: HASH("2"),
+    pricingDataHash: HASH("3"),
+    accessGrantHash: HASH("4"),
+    policyWord: "0",
+    billingKind: 1,
+    assuranceKind: 1,
+    dependencyKind: 0,
+    activationKind: 0,
+    terminationBillingKind: 0,
+    pauseAllowed: true,
+    maxRatePerEpoch: "100",
+    maxFixedLockup: "1000",
+    maxSingleCharge: "100",
+    maxChargePerWindow: "1000",
     lifetimeCapGross: "1000",
+    chargeWindowEpochs: "10",
+    notAfterEpoch: "10000",
+    maxLockupPeriod: "100",
+    acceptedRatePerEpoch: "10",
+    acceptedEpoch: "110",
+    quoteEpoch: "110",
+    quoteValidThroughEpoch: "140",
+    quoteTtlEpochs: "30",
+    currentFixedBudget: "100",
     totalRawGross: "20",
     totalChargedGross: "15",
     claimCount: "1",
-    quoteEpoch: "110",
-    quoteValidThroughEpoch: "140",
+    provisioningHash: null,
     resourceStatusHash: HASH("9"),
     activatedEpoch: "111",
     pausedEpoch: null,
+    resumedEpoch: null,
     terminationRequestedEpoch: null,
     payEndEpoch: null,
     finalSettledEpoch: null,
+    pauseRateUpdateDeferred: false,
+    state: "ACTIVE",
+    requiresAccountRead: false,
+    createdBlock: "110",
+    createdTransaction: HASH("a"),
     ...overrides,
   };
 }
@@ -101,7 +127,7 @@ function payRail(overrides: Partial<PayRailAssociationFacts> = {}): PayRailAssoc
     payer: { address: ADDRESS("c") },
     payee: { address: ADDRESS("d") },
     operator: { address: ADDRESS("a") },
-    validator: ADDRESS("e"),
+    validator: ADDRESS("a"),
     token: { address: ADDRESS("5") },
     ...overrides,
   };
@@ -121,8 +147,7 @@ function input(overrides: Partial<VerifyBossPayRailAssociationInput> = {}): Veri
 
 describe("Boss to Filecoin Pay rail association", () => {
   it("accepts only the complete exact tuple", () => {
-    const result = verifyBossPayRailAssociation(input());
-    expect(result).toEqual({
+    expect(verifyBossPayRailAssociation(input())).toEqual({
       status: "matched",
       association: {
         chainId: 314159,
@@ -134,7 +159,7 @@ describe("Boss to Filecoin Pay rail association", () => {
         payer: ADDRESS("c"),
         payee: ADDRESS("d"),
         operator: ADDRESS("a"),
-        validator: ADDRESS("e"),
+        validator: ADDRESS("a"),
         token: ADDRESS("5"),
         active: true,
       },
@@ -144,7 +169,7 @@ describe("Boss to Filecoin Pay rail association", () => {
   it.each([
     ["chainId", { routeChainId: 314 }],
     ["filecoinPay", { trustedFilecoinPay: ADDRESS("f") }],
-    ["bossAccount", { bossSubscription: bossSubscription({ bossAccount: ADDRESS("f") }) }],
+    ["bossAccount", { bossSubscription: bossSubscription({ accountAddress: ADDRESS("f") }) }],
     ["subscriptionId", { bossSubscription: bossSubscription({ subscriptionId: HASH("f") }) }],
     ["railId", { payRail: payRail({ railId: "43" }) }],
     ["payer", { payRail: payRail({ payer: { address: ADDRESS("f") } }) }],
@@ -155,9 +180,7 @@ describe("Boss to Filecoin Pay rail association", () => {
   ] as const)("rejects a %s mismatch", (field, overrides) => {
     const result = verifyBossPayRailAssociation(input(overrides));
     expect(result.status).toBe("mismatched");
-    if (result.status === "mismatched") {
-      expect(result.mismatches.map((mismatch) => mismatch.field)).toContain(field);
-    }
+    if (result.status === "mismatched") expect(result.mismatches.map((mismatch) => mismatch.field)).toContain(field);
   });
 
   it("rejects a lookalike rail even when its payee and operator match", () => {
@@ -174,9 +197,9 @@ describe("Boss to Filecoin Pay rail association", () => {
     }
   });
 
-  it("normalizes hexadecimal case but rejects malformed authority", () => {
+  it("normalizes hexadecimal case but rejects malformed validator authority", () => {
     const caseNormalized = verifyBossPayRailAssociation(
-      input({ payRail: payRail({ validator: ADDRESS("e").toUpperCase().replace("0X", "0x") }) }),
+      input({ payRail: payRail({ validator: ADDRESS("a").toUpperCase().replace("0X", "0x") }) }),
     );
     expect(caseNormalized.status).toBe("matched");
 

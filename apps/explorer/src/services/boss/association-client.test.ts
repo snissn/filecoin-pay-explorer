@@ -61,11 +61,10 @@ function association(overrides: Record<string, unknown> = {}) {
     payer: ADDRESS("c"),
     payee: ADDRESS("d"),
     operator: ADDRESS("a"),
-    validator: ADDRESS("e"),
     token: ADDRESS("5"),
     active: true,
-    transactionHash: HASH("f"),
-    blockNumber: "120",
+    createdTransaction: HASH("f"),
+    createdBlock: "120",
     ...overrides,
   };
 }
@@ -74,7 +73,7 @@ function subscription(overrides: Record<string, unknown> = {}) {
   return {
     id: "subscription-entity",
     chainId: "314159",
-    bossAccount: ADDRESS("a"),
+    accountAddress: ADDRESS("a"),
     subscriptionId: HASH("b"),
     railId: "42",
     beneficiary: ADDRESS("d"),

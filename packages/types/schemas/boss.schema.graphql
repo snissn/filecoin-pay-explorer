@@ -1,5 +1,6 @@
 """
-Filecoin Boss GraphQL client contract pinned to the A10 entity surface.
+Filecoin Boss GraphQL client contract. Entity fields are a strict subset of
+snissn/filecoin-boss main commit 43786a88c726e85a24988d90c234eae220e58686.
 """
 scalar BigInt
 scalar Bytes
@@ -10,7 +11,7 @@ enum OrderDirection {
 }
 
 enum SubscriptionState {
-  ACCEPTED
+  PENDING_ACTIVATION
   ACTIVE
   PAUSED
   TERMINATING
@@ -28,6 +29,7 @@ type BossAccount {
   serviceRegistry: Bytes!
   adapterRegistry: Bytes!
   accountVersion: BigInt!
+  accountKey: Bytes!
   createdBlock: BigInt!
   createdTransaction: Bytes!
 }
@@ -36,50 +38,82 @@ type BossService {
   id: ID!
   chainId: BigInt!
   serviceRegistry: Bytes!
-  provider: Bytes!
+  providerAddress: Bytes!
   serviceId: Bytes!
   serviceType: Bytes!
   version: BigInt!
+  providerRevision: BigInt!
   metadataURI: String!
   published: Boolean!
+  updatedBlock: BigInt!
+  updatedTransaction: Bytes!
 }
 
 type ResourceSubscription {
   id: ID!
   chainId: BigInt!
   bossAccount: Bytes!
-  resourceKey: Bytes!
   subscriptionId: Bytes!
+  resourceKey: Bytes!
   active: Boolean!
+  createdBlock: BigInt!
+  createdTransaction: Bytes!
 }
 
 type Subscription {
   id: ID!
   chainId: BigInt!
-  bossAccount: Bytes!
+  accountAddress: Bytes!
   subscriptionId: Bytes!
-  railId: BigInt!
+  offerHash: Bytes!
   resourceKey: Bytes!
-  provider: Bytes!
+  railId: BigInt!
   beneficiary: Bytes!
   token: Bytes!
+  provider: Bytes!
+  reporter: Bytes!
   resourceAdapter: Bytes!
   pricingAdapter: Bytes!
-  state: SubscriptionState!
-  ratePerEpoch: BigInt!
-  fixedBudget: BigInt!
+  resourceDataHash: Bytes!
+  pricingDataHash: Bytes!
+  accessGrantHash: Bytes!
+  policyWord: BigInt!
+  billingKind: Int!
+  assuranceKind: Int!
+  dependencyKind: Int!
+  activationKind: Int!
+  terminationBillingKind: Int!
+  pauseAllowed: Boolean!
+  maxRatePerEpoch: BigInt!
+  maxFixedLockup: BigInt!
+  maxSingleCharge: BigInt!
+  maxChargePerWindow: BigInt!
   lifetimeCapGross: BigInt!
+  chargeWindowEpochs: BigInt!
+  notAfterEpoch: BigInt!
+  maxLockupPeriod: BigInt!
+  acceptedRatePerEpoch: BigInt!
+  acceptedEpoch: BigInt!
+  quoteEpoch: BigInt
+  quoteValidThroughEpoch: BigInt!
+  quoteTtlEpochs: BigInt!
+  currentFixedBudget: BigInt!
   totalRawGross: BigInt!
   totalChargedGross: BigInt!
   claimCount: BigInt!
-  quoteEpoch: BigInt
-  quoteValidThroughEpoch: BigInt
+  provisioningHash: Bytes
   resourceStatusHash: Bytes
   activatedEpoch: BigInt
   pausedEpoch: BigInt
+  resumedEpoch: BigInt
   terminationRequestedEpoch: BigInt
   payEndEpoch: BigInt
   finalSettledEpoch: BigInt
+  pauseRateUpdateDeferred: Boolean!
+  state: SubscriptionState!
+  requiresAccountRead: Boolean!
+  createdBlock: BigInt!
+  createdTransaction: Bytes!
 }
 
 type UsageClaim {
@@ -88,12 +122,14 @@ type UsageClaim {
   bossAccount: Bytes!
   subscriptionId: Bytes!
   claimId: Bytes!
-  observedUsage: BigInt!
+  claimHash: Bytes!
+  units: BigInt!
   rawGross: BigInt!
   chargedGross: BigInt!
   evidenceHash: Bytes!
   transactionHash: Bytes!
   blockNumber: BigInt!
+  logIndex: BigInt!
 }
 
 type RailSubscription {
@@ -106,11 +142,10 @@ type RailSubscription {
   payer: Bytes!
   payee: Bytes!
   operator: Bytes!
-  validator: Bytes!
   token: Bytes!
   active: Boolean!
-  transactionHash: Bytes!
-  blockNumber: BigInt!
+  createdBlock: BigInt!
+  createdTransaction: Bytes!
 }
 
 type _Block_ {
@@ -139,7 +174,7 @@ input BossAccount_filter {
 
 input BossService_filter {
   id: ID
-  provider: Bytes
+  providerAddress: Bytes
   serviceId: Bytes
   serviceType: Bytes
   published: Boolean
@@ -155,7 +190,7 @@ input ResourceSubscription_filter {
 
 input Subscription_filter {
   id: ID
-  bossAccount: Bytes
+  accountAddress: Bytes
   subscriptionId: Bytes
   railId: BigInt
   resourceKey: Bytes
@@ -189,15 +224,17 @@ enum BossAccount_orderBy {
 
 enum BossService_orderBy {
   id
-  provider
+  providerAddress
   serviceId
   version
+  updatedBlock
 }
 
 enum ResourceSubscription_orderBy {
   id
   resourceKey
   subscriptionId
+  createdBlock
 }
 
 enum Subscription_orderBy {
@@ -205,6 +242,7 @@ enum Subscription_orderBy {
   subscriptionId
   railId
   state
+  acceptedEpoch
   activatedEpoch
   finalSettledEpoch
 }
@@ -220,12 +258,11 @@ enum RailSubscription_orderBy {
   id
   subscriptionId
   railId
-  blockNumber
+  createdBlock
 }
 
 type Query {
   _meta(block: Block_height): _Meta_
-
   bossAccount(id: ID!, block: Block_height): BossAccount
   bossAccounts(
     first: Int = 100
@@ -235,7 +272,6 @@ type Query {
     orderDirection: OrderDirection
     block: Block_height
   ): [BossAccount!]!
-
   bossService(id: ID!, block: Block_height): BossService
   bossServices(
     first: Int = 100
@@ -245,7 +281,6 @@ type Query {
     orderDirection: OrderDirection
     block: Block_height
   ): [BossService!]!
-
   resourceSubscription(id: ID!, block: Block_height): ResourceSubscription
   resourceSubscriptions(
     first: Int = 100
@@ -255,7 +290,6 @@ type Query {
     orderDirection: OrderDirection
     block: Block_height
   ): [ResourceSubscription!]!
-
   subscription(id: ID!, block: Block_height): Subscription
   subscriptions(
     first: Int = 100
@@ -265,8 +299,6 @@ type Query {
     orderDirection: OrderDirection
     block: Block_height
   ): [Subscription!]!
-
-  usageClaim(id: ID!, block: Block_height): UsageClaim
   usageClaims(
     first: Int = 100
     skip: Int = 0
@@ -275,8 +307,6 @@ type Query {
     orderDirection: OrderDirection
     block: Block_height
   ): [UsageClaim!]!
-
-  railSubscription(id: ID!, block: Block_height): RailSubscription
   railSubscriptions(
     first: Int = 100
     skip: Int = 0

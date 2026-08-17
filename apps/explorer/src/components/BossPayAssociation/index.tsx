@@ -95,8 +95,8 @@ export default function BossPayAssociation({
             className='rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100'
             role='status'
           >
-            Chain, Filecoin Pay authority, Boss account/operator, subscription ID, rail ID, payer, payee, token, and
-            validator all match. The association is{" "}
+            Chain, Filecoin Pay authority, Boss account/operator, subscription ID, rail ID, payer, payee, and token all
+            match; the Filecoin Pay validator is the authenticated Boss account. The association is{" "}
             {state.association.active ? "currently active" : "historical/inactive"}.
           </p>
           <dl className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
